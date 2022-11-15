@@ -4,6 +4,10 @@
 .vscode
 
 
+# Put all data avialable here, such that it does not get uploaded to github
+data
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
