@@ -1,5 +1,5 @@
-import torchvisision
-
+import torchvision
+import torch
 
 class IntentityTransformIIC(list):
     def __init__(self):
@@ -7,8 +7,9 @@ class IntentityTransformIIC(list):
         Defines the base of tranformations (denoted g in TODO).
       A identity transform
       """
+        super().__init__()
 
-    pass
+        pass
 
     def forward_transform(self, x):
         return x

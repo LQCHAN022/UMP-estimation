@@ -76,8 +76,8 @@ def create_timelaps_data(point, years, bands=None, verbose=True):
         if verbose:
             img = np.dstack([image[:, :, 2], image[:, :, 1], image[:, :, 0]])
             img = exposure.equalize_adapthist(img, clip_limit=0.02)
-            plt.imshow(img)
-            plt.show()
+            # plt.imshow(img)
+            # plt.show()
         resulting_images.append(image)
     return np.asarray(resulting_images)
 
@@ -102,15 +102,6 @@ def create_center_bounding_boxes(lat, lon, diameter, r_earth=6371.0):
     return bounding_boxes
 
 
-# Amberg: 11.8633, 49.4403
-# Keelung: 121.7392, 25.1276
-# Pohang-si: 129.3145, 36.0030 (Works)
-# Bangkok: 100.5018, 13.7563 (Sadly Poor data in 1984)
-# Hanoi: 105.8342 21.0278
-# Shenzhen: 114.0596, 22.5429
-# HongKong: 114.1694, 22.3193
-
-
 def main(city, years=None, base_path=None, auth=False):
     # Trigger the authentication flow.
     if auth:
@@ -129,11 +120,18 @@ def main(city, years=None, base_path=None, auth=False):
 
     data_set = create_timelaps_data(city, years)
     print(data_set.shape)
+    print(base_path)
     np.save(f"{base_path}/data_raw", data_set)
     np.save(f"{base_path}/train_raw", data_set[:-1])
     np.save(f"{base_path}/test_raw", data_set[-1:])
 
 
+# Pohang-si: 129.3145, 36.0030 (Works)
+# Bangkok: 100.5018, 13.7563 (Sadly Poor data in 1984)
+# Hanoi: 105.8342 21.0278
+# Shenzhen: 114.0596, 22.5429
+# HongKong: 114.1694, 22.3193
+
 if __name__ == '__main__':
-    point = [36.8219, -1.2921]
-    main(point, base_path="data/nairobi_dataset")
+    point = [129.3145, 36.0030]
+    main(point, base_path="data/pohang_si_dataset")
