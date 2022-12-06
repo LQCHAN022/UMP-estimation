@@ -48,13 +48,17 @@ def convolution_segment(in_feat, out_feat, kernel=2, padding=2, dilation=1,
     return layers
 
 
-class VGGTrunk(nn.Module):
-    """
-        Small reimplementation of the VGG version by [1].
-    """
-
-    def __init__(self, input_channels, nr_classes, input_size=16, verbose=False):
+class AbstractVGGTrunk(nn.Module):
+    def __init__(self, input_channels, nr_classes, input_size):
         super().__init__()
+        self.input_channels = input_channels
+        self.nr_classes = nr_classes
+        self.input_size = input_size
+
+
+class VGGTrunk(AbstractVGGTrunk):
+    def __init__(self, input_channels, nr_classes, input_size=16, verbose=False):
+        super().__init__(input_channels, nr_classes, input_size)
         self.convolution = nn.Sequential(
             *convolution_segment(input_channels, 32, kernel=3, padding=0),
             *convolution_segment(32, 32, kernel=3, padding=0),
@@ -73,7 +77,6 @@ class VGGTrunk(nn.Module):
             nn.Conv2d(64, nr_classes, kernel_size=1, stride=1, dilation=1, padding=0, bias=False),
             nn.Softmax2d()
         )
-        self.input_size = input_size
         self.double()
         self.verbose = verbose
 
@@ -101,15 +104,16 @@ class VGGTrunk(nn.Module):
 
 
 class IICModel(pl.LightningModule):
-    def __init__(self, input_channels, nr_classes, input_size,
+    def __init__(self, net: AbstractVGGTrunk, loss_padding=10,
                  val_sample=None, recombination_size=None, sub_image_size=None, crop_factor=None):
         super().__init__()
-        self.net = VGGTrunk(input_channels, nr_classes, input_size=input_size)
+        self.net = net
         self.net._initialize_weights()
-        self.nr_classes = nr_classes
+        self.nr_classes = net.nr_classes
+        self.loss_padding = loss_padding
 
         self.step = 0
-        self.val_sample = val_sample  # val_set[0:]["img1"].cuda()
+        self.val_sample = val_sample
         self.recombination_size = recombination_size
         self.sub_image_size = sub_image_size
         self.crop_factor = crop_factor
@@ -124,7 +128,7 @@ class IICModel(pl.LightningModule):
         y1 = self(img1)
         y2 = self(img2)
 
-        loss = IIC_Loss(y1, y2, train_batch["inverse"])
+        loss = IIC_Loss(y1, y2, train_batch["inverse"], padding=self.loss_padding)
 
         return loss
 
