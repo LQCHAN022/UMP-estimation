@@ -1,4 +1,4 @@
-    from skimage import exposure
+from skimage import exposure
 import numpy as np
 import torch
 
