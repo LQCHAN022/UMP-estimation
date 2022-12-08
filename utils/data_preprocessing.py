@@ -1,4 +1,4 @@
-from skimage import exposure
+    from skimage import exposure
 import numpy as np
 import torch
 
@@ -55,7 +55,7 @@ def segment_satelite_image(satelite_image, sub_size=32):
             max_w, max_h = int(i+sub_size), int(j+sub_size)
             data_out.append(satelite_image[:, min_w:max_w, min_h:max_h])
 
-    return torch.tensor(data_out), (width, height)
+    return torch.tensor(np.asarray(data_out)), (width, height)
 
 def recombine_image(images, out_size, sub_size):
     combined_image = torch.zeros((images.shape[1], out_size[0]*sub_size, out_size[1]*sub_size))
