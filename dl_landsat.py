@@ -58,7 +58,9 @@ def digits_after_decimal(number: float):
     return str(number)[::-1].find('.')
 
 
-def export_to_drive(city_coords, years=None, base_folder_name=None, auth=False, verbose=True, export_radius=20000):
+def export_to_drive(city_coords, years=None, month_range=None, day_range=None,
+                    base_folder_name=None, auth=False, verbose=True,
+                    export_radius=20000):
     # Trigger the authentication flow.
     if auth:
         ee.Authenticate()
@@ -67,6 +69,10 @@ def export_to_drive(city_coords, years=None, base_folder_name=None, auth=False, 
     ee.Initialize()
 
     city = ee.Geometry.Point(city_coords)  # Coord format: E, N
+    if month_range is None:
+        month_range = [1, 12]
+    if day_range is None:
+        day_range = [1, 31]
     if years is None:
         years = list(range(2013, 2022))
     if base_folder_name is None:
@@ -86,8 +92,8 @@ def export_to_drive(city_coords, years=None, base_folder_name=None, auth=False, 
         bounding_box = create_bounding_box(city, export_radius)
         ls_read = (ee.ImageCollection(LANDSAT_8)
                    .map(apply_scale_factors_8)
-                   .filterBounds(point)
-                   .filterDate(f'{year}-01-01', f'{year}-12-31')
+                   .filterBounds(city)
+                   .filterDate(f'{year}-{month_range[0]}-{day_range[0]}', f'{year}-{month_range[1]}-{day_range[1]}')
                    .map(mask_clouds)
                    )
         if verbose:
@@ -112,7 +118,7 @@ def export_to_drive(city_coords, years=None, base_folder_name=None, auth=False, 
                                     region=bounding_box,
                                     fileFormat="GeoTIFF",
                                     maxPixels=10000000000000)
-        # task.start()
+        task.start()
 
 
 def export_to_numpy(years, base_folder_name, band_list):
