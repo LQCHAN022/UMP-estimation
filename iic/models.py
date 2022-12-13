@@ -1,4 +1,3 @@
-import geemap
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -126,7 +125,6 @@ class IICModel(pl.LightningModule):
         img1 = train_batch["img1"]
         img2 = train_batch["img2"]
 
-        geemap.Map
 
         y1 = self(img1)
         y2 = self(img2)

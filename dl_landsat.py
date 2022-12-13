@@ -152,11 +152,11 @@ def export_to_numpy(years, base_folder_name, band_list):
 
 
 if __name__ == '__main__':
-    base_folder_name = "fuji_city"
+    base_folder_name = "Pohang_Si"
     years = list(range(2013, 2022))
     point = [129.3145, 36.0030]
-    export_to_drive(point, base_folder_name=base_folder_name, years=years)
+    #export_to_drive(point, base_folder_name=base_folder_name, years=years)
 
     # Note it is adivable to inspect the data with QGis beforehand and they need to be downloaded from Gdrive
-    # band_list = [1, 2, 3, 4, 5, 6, 7, 8]
-    # export_to_numpy(years, base_folder_name, band_list)
+    band_list = [1, 2, 3, 4, 5, 6, 7, 8]
+    export_to_numpy(years, base_folder_name, band_list)
