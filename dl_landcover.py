@@ -31,15 +31,17 @@ def create_projection_window(bounding_box):
     return [lat_min, lon_max, lat_max, lon_min]
 
 
-def main(coordinates, base_dir="data/worldcover"):
-    image = np.load("data/pohang_si_dataset/data_raw.npy")
-
+def main(coordinates, base_dir="data/fujinomia_dataset_worldcover"):
+    image = np.load("data/fujinomia_dataset/data_raw.npy")
+    print(image.shape)
     point = ee.Geometry.Point(coordinates)
+    bounds = create_bounding_box(point, 20000)
 
-    bounds = create_bounding_box(point, 15300)  # We cant export more ATM
+
+
     geometry = tuple([tuple(x) for x in bounds.coordinates().getInfo()[0]])
     geometry = Polygon(geometry)
-
+    #
     catalogue = Catalogue().authenticate()
 
     products = catalogue.get_products("urn:eop:VITO:ESA_WorldCover_10m_2020_V1", geometry=geometry)
@@ -49,8 +51,8 @@ def main(coordinates, base_dir="data/worldcover"):
     proj_window = create_projection_window(bounds)
     my_vrt = gdal.BuildVRT(f'{base_dir}/combined.vrt', file_list)
     ds = gdal.Translate(f'{base_dir}/worldcover.vrt', my_vrt, projWin=proj_window,
-                        width=image.shape[1],
-                        height=image.shape[2])
+                        width=image.shape[2],
+                        height=image.shape[3])
     ground_truth_data = ds.ReadAsArray()
     np.save(f"{base_dir}/worldcover", ground_truth_data)
 
@@ -75,11 +77,12 @@ def main(coordinates, base_dir="data/worldcover"):
     for k, v in GROUND_TRUTH_COMBINATION.items():
         ground_truth_data[ground_truth_data == k] = v
     np.save(F"{base_dir}/worldcover_adj_classes", ground_truth_data)
+    print(ground_truth_data.shape)
     plt.matshow(ground_truth_data)
     plt.colorbar()
     plt.show()
 
 
 if __name__ == '__main__':
-    coords = [129.3145, 36.0030]
+    coords = [138.7034785, 35.160328]
     main(coords)

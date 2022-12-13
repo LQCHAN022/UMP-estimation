@@ -1,4 +1,7 @@
-client_secret.json
+.DS_Store
+
+lighning_logs
+client_secrets.json
 
 # IDEAS
 
