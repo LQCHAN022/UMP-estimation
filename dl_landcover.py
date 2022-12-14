@@ -31,8 +31,8 @@ def create_projection_window(bounding_box):
     return [lat_min, lon_max, lat_max, lon_min]
 
 
-def main(coordinates, base_dir="data/fujinomia_dataset_worldcover"):
-    image = np.load("data/fujinomia_dataset/data_raw.npy")
+def main(coordinates, base_dir="data/Pohang_Si_wc"):
+    image = np.load("data/Pohang_Si/data_raw.npy")
     print(image.shape)
     point = ee.Geometry.Point(coordinates)
     bounds = create_bounding_box(point, 20000)
@@ -84,5 +84,5 @@ def main(coordinates, base_dir="data/fujinomia_dataset_worldcover"):
 
 
 if __name__ == '__main__':
-    coords = [138.7034785, 35.160328]
+    coords = [129.3145, 36.0030]
     main(coords)

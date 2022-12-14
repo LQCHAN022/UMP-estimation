@@ -58,7 +58,7 @@ def digits_after_decimal(number: float):
     return str(number)[::-1].find('.')
 
 
-def export_to_drive(city_coords, years=None, month_range=None, day_range=None,
+def export_to_drive(city_coords, years=None, months=None,
                     base_folder_name=None, auth=False, verbose=True,
                     export_radius=20000):
     # Trigger the authentication flow.
@@ -69,10 +69,8 @@ def export_to_drive(city_coords, years=None, month_range=None, day_range=None,
     ee.Initialize()
 
     city = ee.Geometry.Point(city_coords)  # Coord format: E, N
-    if month_range is None:
-        month_range = [1, 12]
-    if day_range is None:
-        day_range = [1, 31]
+    if months is None:
+        months = list(range(1, 12))
     if years is None:
         years = list(range(2013, 2022))
     if base_folder_name is None:
@@ -90,12 +88,25 @@ def export_to_drive(city_coords, years=None, month_range=None, day_range=None,
         if verbose:
             print(f"At Year: {year}")
         bounding_box = create_bounding_box(city, export_radius)
-        ls_read = (ee.ImageCollection(LANDSAT_8)
-                   .map(apply_scale_factors_8)
-                   .filterBounds(city)
-                   .filterDate(f'{year}-{month_range[0]}-{day_range[0]}', f'{year}-{month_range[1]}-{day_range[1]}')
-                   .map(mask_clouds)
-                   )
+        ls_read = None
+        for month in months:
+            if ls_read is None:
+                ls_read = (ee.ImageCollection(LANDSAT_8)
+                           .map(apply_scale_factors_8)
+                           .filterBounds(city)
+                           .filter(ee.Filter.calendarRange(year, year + 1, "year"))
+                           .filter(ee.Filter.calendarRange(month, month + 1, "month"))
+                           .map(mask_clouds)
+                           )
+            else:
+                ls_read_ = (ee.ImageCollection(LANDSAT_8)
+                            .map(apply_scale_factors_8)
+                            .filterBounds(city)
+                            .filter(ee.Filter.calendarRange(year, year + 1, "year"))
+                            .filter(ee.Filter.calendarRange(month, month + 1, "month"))
+                            .map(mask_clouds)
+                            )
+                ls_read = ls_read.merge(ls_read_)
         if verbose:
             print("Number of exported Months:")
             print(ls_read.size().getInfo())
@@ -152,10 +163,10 @@ def export_to_numpy(years, base_folder_name, band_list):
 
 
 if __name__ == '__main__':
-    base_folder_name = "Pohang_Si"
+    base_folder_name = "Pohang_Si_Summer"
     years = list(range(2013, 2022))
-    point = [129.3145, 36.0030]
-    #export_to_drive(point, base_folder_name=base_folder_name, years=years)
+    point = [0129.3145, 36.003]
+    # export_to_drive(point, base_folder_name=base_folder_name, years=years)
 
     # Note it is adivable to inspect the data with QGis beforehand and they need to be downloaded from Gdrive
     band_list = [1, 2, 3, 4, 5, 6, 7, 8]
