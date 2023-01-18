@@ -55,8 +55,8 @@ dependencies:
   - libev=4.33
   - libffi=3.4.2
   - libgdal=3.6.0
-  - libgfortran=5.0.0
-  - libgfortran5=11.3.0
+#  - libgfortran=5.0.0
+#  - libgfortran5=11.3.0
   - libglib=2.74.1
   - libiconv=1.17
   - libidn2=2.3.2
@@ -284,7 +284,7 @@ dependencies:
     - tensorboard-plugin-wit==1.8.1
     - termcolor==2.1.0
     - terminado==0.17.0
-    - terracatalogueclient==0.1.14
+  #  - terracatalogueclient==0.1.14
     - threadpoolctl==3.1.0
     - tifffile==2022.10.10
     - tinycss2==1.2.1
