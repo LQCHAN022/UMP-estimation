@@ -3,6 +3,7 @@ import os
 
 import ee
 import numpy as np
+import gdown
 from ee.batch import Export
 from osgeo import gdal
 from osgeo.gdal import Dataset
@@ -84,6 +85,7 @@ def export_to_drive(city_coords, years=None, months=None,
         print(base_folder_name)
         print("Creating Folder on local machine: ")
         print(base_path)
+    task_list = []
     for year in years:
         if verbose:
             print(f"At Year: {year}")
@@ -115,7 +117,6 @@ def export_to_drive(city_coords, years=None, months=None,
                 map(lambda x: datetime.datetime.fromtimestamp(x / 1e3).strftime("%Y/%m/%d %H:%M"), time_stamps))
             print("Months Exported:")
             print(dates)
-
         ls_median = ls_read.median()
         projection = ls_read.first().select("B1").projection().getInfo()
         if verbose:
@@ -129,12 +130,27 @@ def export_to_drive(city_coords, years=None, months=None,
                                     region=bounding_box,
                                     fileFormat="GeoTIFF",
                                     maxPixels=10000000000000)
+                                    
         task.start()
+        task_list.append(task)
+        download_drive_folder(task_list)
 
+def download_drive_folder(task_list):
+    while all(task.status().get('state') != task.State.COMPLETED for task in task_list):
+        print(task_list[-1].status().get('state'))
+        print('~~~~~~~~~~~~~~~~~~~~~~')
+        
+    status = ee.batch.Task.status(task_list[-1])
+    folder_link = status.get('destination_uris')
+    folder_id = folder_link[0].split('/')[-1]
+    folder_id = 'https://drive.google.com/drive/folders/' + folder_id
+    print('folder id: ', folder_id)
+
+    gdown.download_folder(url=folder_id, quiet=True, use_cookies=True, output=f'data/{base_folder_name}/')
 
 def export_to_numpy(years, base_folder_name, band_list):
     images = []
-    base_path = f"data/{base_folder_name}/"
+    base_path = f"data/{base_folder_name}"
     for year in years:
         base_path_year = f"{base_path}/image_{year}.tif"
         ds = gdal.Open(base_path_year, gdal.GA_ReadOnly)
@@ -163,10 +179,10 @@ def export_to_numpy(years, base_folder_name, band_list):
 
 
 if __name__ == '__main__':
-    base_folder_name = "Pohang_Si_Summer"
-    years = list(range(2013, 2022))
-    point = [0129.3145, 36.003]
-    # export_to_drive(point, base_folder_name=base_folder_name, years=years)
+    base_folder_name = "nairobi_images_summer"
+    years = list(range(2013, 2021))
+    point = [36.74905523581975, -1.2815372605877613]
+    export_to_drive(point, base_folder_name=base_folder_name, years=years)
 
     # Note it is adivable to inspect the data with QGis beforehand and they need to be downloaded from Gdrive
     band_list = [1, 2, 3, 4, 5, 6, 7, 8]
