@@ -10,7 +10,7 @@ from osgeo.gdal import Dataset
 
 LANDSAT_8 = "LANDSAT/LC08/C02/T1_L2"
 LANDSAT_8_START = 2014
-LANDSAT_8_END = 2022
+LANDSAT_8_END = 2021
 
 
 def apply_scale_factors_57(image):
@@ -133,10 +133,10 @@ def export_to_drive(city_coords, years=None, months=None,
                                     
         task.start()
         task_list.append(task)
-        download_drive_folder(task_list)
+    download_drive_folder(task_list)
 
 def download_drive_folder(task_list):
-    while all(task.status().get('state') != task.State.COMPLETED for task in task_list):
+    while any(task.status().get('state') != task.State.COMPLETED for task in task_list):
         print(task_list[-1].status().get('state'))
         print('~~~~~~~~~~~~~~~~~~~~~~')
         
@@ -146,7 +146,7 @@ def download_drive_folder(task_list):
     folder_id = 'https://drive.google.com/drive/folders/' + folder_id
     print('folder id: ', folder_id)
 
-    gdown.download_folder(url=folder_id, quiet=True, use_cookies=True, output=f'data/{base_folder_name}/')
+    gdown.download_folder(url=folder_id, quiet=True, use_cookies=True, output=f'data/')
 
 def export_to_numpy(years, base_folder_name, band_list):
     images = []
@@ -182,7 +182,7 @@ if __name__ == '__main__':
     base_folder_name = "nairobi_images_summer"
     years = list(range(2013, 2021))
     point = [36.74905523581975, -1.2815372605877613]
-    export_to_drive(point, base_folder_name=base_folder_name, years=years)
+    #export_to_drive(point, base_folder_name=base_folder_name, years=years)
 
     # Note it is adivable to inspect the data with QGis beforehand and they need to be downloaded from Gdrive
     band_list = [1, 2, 3, 4, 5, 6, 7, 8]

@@ -31,8 +31,8 @@ def create_projection_window(bounding_box):
     return [lat_min, lon_max, lat_max, lon_min]
 
 
-def main(coordinates, base_dir="data/Pohang_Si_wc"):
-    image = np.load("data/Pohang_Si/data_raw.npy")
+def main(coordinates, base_dir, raw_data_dir):
+    image = np.load(raw_data_dir)
     print(image.shape)
     point = ee.Geometry.Point(coordinates)
     bounds = create_bounding_box(point, 20000)
@@ -84,5 +84,5 @@ def main(coordinates, base_dir="data/Pohang_Si_wc"):
 
 
 if __name__ == '__main__':
-    coords = [129.3145, 36.0030]
-    main(coords)
+    coords = [36.74905523581975, -1.2815372605877613]
+    main(coords, 'data/nairobi_images_summer', 'data/nairobi_images_summer/data_raw.npy')
