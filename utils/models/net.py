@@ -7,7 +7,7 @@ from torchvision import utils
 
 import cv2
 class model(nn.Module):
-    def __init__(self, Encoder, num_features, block_channel):
+    def __init__(self, Encoder, head, num_features, block_channel):
 
         super(model, self).__init__()
 
@@ -15,6 +15,7 @@ class model(nn.Module):
         self.D2 = modules.D2(num_features = num_features)
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R(block_channel)
+        self.head = head
 
 
     def forward(self, x):
@@ -40,6 +41,7 @@ class model(nn.Module):
 
  
         out = self.R(torch.cat((x_decoder, x_mff), 1)) 
+        out = self.head(out)
         return out
 
 
