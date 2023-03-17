@@ -108,10 +108,12 @@ class E_densenet(nn.Module):
 
 class E_senet(nn.Module):
 
-    def __init__(self, original_model, num_features = 2048):
+    def __init__(self, original_model, x_norms, num_features = 2048):
         super(E_senet, self).__init__()
 
         self.base = nn.Sequential(*list(original_model.children())[:-3])
+
+        self.x_norms = x_norms
 
         #self.conv = nn.Conv2d(3, 64 , kernel_size=5, stride=1, bias=False)
         #self.bn = nn.BatchNorm2d(64)
@@ -124,6 +126,11 @@ class E_senet(nn.Module):
         #conv_x = self.bn(conv_x) 
 
         #summary(self.base, input_size=(3, 440, 440))
+
+        # Normalise x first
+        for channel in range(x.shape[1]):
+            x[:, channel] = self.x_norms[channel].transform(x[:, channel])
+
         x_block0 = self.base[0][0:6](x)
         x = self.base[0][6:](x_block0)
         
