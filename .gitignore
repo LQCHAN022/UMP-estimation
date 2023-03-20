@@ -181,3 +181,4 @@ results/
 # Models
 *.pth
 *.png
+pretrained_model/
