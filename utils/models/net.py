@@ -50,18 +50,33 @@ class model(nn.Module):
     """
     Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
     """
-    def __init__(self, body, head):
+    def __init__(self, Encoder, num_features, block_channel):
+        """
+        # Parameters:\n
+        - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
+        - head: The head of the model, takes in output from the body and outputs it as the output of this model\n
+        - cut: The index to cut the body after, ie. body = body[:cut]. Defaults to None. \n
+
+        """
 
         super(model, self).__init__()
-
-        self.body = body
-        self.head = head
+        
+        self.E = Encoder
+        self.D2 = modules.D2(num_features = num_features)
+        self.MFF = modules.MFF(block_channel)
+        self.R = modules.R2()
 
 
     def forward(self, x):
 
-        out = self.body(x)
-        out = self.head(out)
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x)
+
+        x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
+
+        x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4,[x_decoder.size(2),x_decoder.size(3)]) 
+
+        out = self.R(torch.cat((x_decoder, x_mff), 1)) 
+
         return out
 
 
