@@ -15,6 +15,8 @@ import torchvision.models as models
 import torch.autograd.variable as Variable
 import scipy.io as sio
 
+from fastai.vision.all import create_head
+
 
 class _UpProjection(nn.Sequential):
 
@@ -376,3 +378,99 @@ class R(nn.Module):
 
 
         return x4
+
+
+class R2(nn.Module):
+    """
+    Final (head) for model, which aims to extract the UMPs after feature extraction in the earlier stages.\n
+    Features to extract: 'height_avg_bld', 'height_avg_area', 'height_avg_total', 'height_std',\n
+       'height_max', 'height_percentile', 'planar_index', 'frontal_index'\n
+    
+    # Intuition\n
+    Height_avg family can do well with just simple convolution, ideally weights are equal-ish\n
+    Height_std needs cannot be achieved easily with convolutions because it is not a "feature" per-se, nor can it be solved linearly\n
+    Planar index might require softmax and then a convolution\n
+    Frontal index might require top edge detection from previous convolutions, and combine that with height data\n
+
+    # Layers\n
+    - Convolutions\n
+    - Softmax\n
+    - Standard Deviation...?
+
+
+    """
+    def __init__(self):
+
+        super(R2, self).__init__()
+        
+
+        self.conv0 = nn.Conv2d(208, 144,
+                               kernel_size=1, stride=1)
+    
+        self.bn0 = nn.BatchNorm2d(144)
+
+
+        self.conv1 = nn.Conv2d(144, 144,
+                               kernel_size=5, stride=1, padding=2, bias=True)
+        self.bn1 = nn.BatchNorm2d(144)
+
+        self.conv2 = nn.Conv2d(144, 144, kernel_size=5, stride=1, padding=2, bias=True)
+
+        self.bn2 = nn.BatchNorm2d(144)
+
+        self.maxpool0 = nn.AdaptiveMaxPool2d((46, 46))
+        self.softmax0 = nn.Softmax2d()
+
+        self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
+        self.bn3 = nn.BatchNorm2d(288)
+
+        # self.conv3 = nn.Conv2d(144, 72, kernel_size=3, padding=1, stride=1)
+
+        self.conv4 = nn.Conv2d(288, 144, kernel_size=1, stride=1)
+        self.bn4 = nn.BatchNorm2d(144)
+
+        self.conv5 = nn.Conv2d(144, 72, kernel_size=1, stride=1)
+
+        self.head = create_head(72, 8)
+
+
+    def forward(self, x):
+
+        # 208 -> 144
+        x0 = self.conv0(x)
+        x0 = self.bn0(x0)
+        x0 = F.relu(x0)
+
+        # 144 -> 144
+        x1 = self.conv1(x0)
+        x1 = self.bn1(x1)
+        x1 = F.relu(x1)
+
+        # 144 -> 144
+        x2 = self.conv2(x1)
+        x2 = self.bn2(x2)
+        x2 = F.relu(x2)
+
+        # 144 -> 432
+        x2_1 = self.maxpool0(x2) # 144
+        x2_2 = self.softmax0(x2) # 144
+        x2_3 = torch.cat([x2, x2_1, x2_2], dim= 1) # 432
+
+        # 432 -> 288
+        x3 = self.conv3(x2_3)
+        x3 = self.bn3(x3)
+        x3 = F.relu(x3)
+
+        # 288 -> 144
+        x4 = self.conv4(x3)
+        x4 = self.bn4(x4)
+        x4 = F.relu(x4)
+
+        # 144 -> 72
+        x5 = self.conv5(x4)
+        x5 = F.relu(x5)
+
+        # 72 -> 8
+        x6 = self.head(x5)
+
+        return x6
