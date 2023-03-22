@@ -6,16 +6,18 @@ from utils.models import modules
 from torchvision import utils
 
 import cv2
-class model(nn.Module):
-    def __init__(self, Encoder, head, num_features, block_channel):
+class im2elevation_model(nn.Module):
+    """
+    The original IM2ELEVATION model
+    """
+    def __init__(self, Encoder, num_features, block_channel):
 
-        super(model, self).__init__()
+        super(im2elevation_model, self).__init__()
 
         self.E = Encoder
         self.D2 = modules.D2(num_features = num_features)
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R(block_channel)
-        self.head = head
 
 
     def forward(self, x):
@@ -41,6 +43,24 @@ class model(nn.Module):
 
  
         out = self.R(torch.cat((x_decoder, x_mff), 1)) 
+        return out
+
+
+class model(nn.Module):
+    """
+    Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
+    """
+    def __init__(self, body, head):
+
+        super(model, self).__init__()
+
+        self.body = body
+        self.head = head
+
+
+    def forward(self, x):
+
+        out = self.body(x)
         out = self.head(out)
         return out
 
