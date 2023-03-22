@@ -345,8 +345,8 @@ class R(nn.Module):
 
         self.bn3 = nn.BatchNorm2d(72)
 
-        # self.conv4 = nn.Conv2d(72, 1, kernel_size=1, stride=1)
-        self.conv4 = nn.Conv2d(72, 8, kernel_size=1, stride=1)
+        self.conv4 = nn.Conv2d(72, 1, kernel_size=1, stride=1)
+        # self.conv4 = nn.Conv2d(72, 8, kernel_size=1, stride=1)
 
 
 
