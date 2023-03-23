@@ -64,7 +64,8 @@ class model(nn.Module):
         self.E = Encoder
         self.D2 = modules.D2(num_features = num_features)
         self.MFF = modules.MFF(block_channel)
-        self.R = modules.R2()
+        self.R = modules.R1()
+        self.R2 = modules.R2()
 
 
     def forward(self, x):
@@ -75,7 +76,9 @@ class model(nn.Module):
 
         x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4,[x_decoder.size(2),x_decoder.size(3)]) 
 
-        out = self.R(torch.cat((x_decoder, x_mff), 1)) 
+        x_R1 = self.R(torch.cat((x_decoder, x_mff), 1))
+
+        out = self.R2(x_R1) 
 
         return out
 

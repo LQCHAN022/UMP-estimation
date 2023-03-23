@@ -380,6 +380,53 @@ class R(nn.Module):
         return x4
 
 
+class R1(nn.Module):
+    """
+    Penultimate parameter group for model, which follows the structure of the original IM2ELEVATION.\n
+
+    The head (R2) is implemented in another class R2 to customise to extract the UMPs instead of the height,\n
+    and to allow for easier fine-tuning/freezing of weights
+
+    """
+    def __init__(self):
+
+        super(R1, self).__init__()
+        
+
+        self.conv0 = nn.Conv2d(208, 144,
+                               kernel_size=1, stride=1)
+    
+        self.bn0 = nn.BatchNorm2d(144)
+
+
+        self.conv1 = nn.Conv2d(144, 144,
+                               kernel_size=5, stride=1, padding=2, bias=True)
+        self.bn1 = nn.BatchNorm2d(144)
+
+        self.conv2 = nn.Conv2d(144, 144, kernel_size=5, stride=1, padding=2, bias=True)
+
+        self.bn2 = nn.BatchNorm2d(144)
+
+
+    def forward(self, x):
+
+        # 208 -> 144
+        x0 = self.conv0(x)
+        x0 = self.bn0(x0)
+        x0 = F.relu(x0)
+
+        # 144 -> 144
+        x1 = self.conv1(x0)
+        x1 = self.bn1(x1)
+        x1 = F.relu(x1)
+
+        # 144 -> 144
+        x2 = self.conv2(x1)
+        x2 = self.bn2(x2)
+        x2 = F.relu(x2)
+
+        return x2
+
 class R2(nn.Module):
     """
     Final (head) for model, which aims to extract the UMPs after feature extraction in the earlier stages.\n
@@ -402,21 +449,6 @@ class R2(nn.Module):
     def __init__(self):
 
         super(R2, self).__init__()
-        
-
-        self.conv0 = nn.Conv2d(208, 144,
-                               kernel_size=1, stride=1)
-    
-        self.bn0 = nn.BatchNorm2d(144)
-
-
-        self.conv1 = nn.Conv2d(144, 144,
-                               kernel_size=5, stride=1, padding=2, bias=True)
-        self.bn1 = nn.BatchNorm2d(144)
-
-        self.conv2 = nn.Conv2d(144, 144, kernel_size=5, stride=1, padding=2, bias=True)
-
-        self.bn2 = nn.BatchNorm2d(144)
 
         self.maxpool0 = nn.AdaptiveMaxPool2d((46, 46))
         self.softmax0 = nn.Softmax2d()
@@ -434,22 +466,7 @@ class R2(nn.Module):
         self.head = create_head(72, 8)
 
 
-    def forward(self, x):
-
-        # 208 -> 144
-        x0 = self.conv0(x)
-        x0 = self.bn0(x0)
-        x0 = F.relu(x0)
-
-        # 144 -> 144
-        x1 = self.conv1(x0)
-        x1 = self.bn1(x1)
-        x1 = F.relu(x1)
-
-        # 144 -> 144
-        x2 = self.conv2(x1)
-        x2 = self.bn2(x2)
-        x2 = F.relu(x2)
+    def forward(self, x2):
 
         # 144 -> 432
         x2_1 = self.maxpool0(x2) # 144
