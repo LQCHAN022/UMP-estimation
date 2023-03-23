@@ -182,3 +182,7 @@ results/
 *.pth
 *.png
 pretrained_model/
+trained_models/
+
+test*.py
+test*.ipynb
