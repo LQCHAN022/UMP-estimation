@@ -16,6 +16,7 @@ import torch.autograd.variable as Variable
 import scipy.io as sio
 
 from fastai.vision.all import create_head
+from fastai.vision.all import AdaptiveConcatPool2d
 
 
 class _UpProjection(nn.Sequential):
@@ -407,6 +408,16 @@ class R1(nn.Module):
 
         self.bn2 = nn.BatchNorm2d(144)
 
+        # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
+
+        self.conv3 = nn.Conv2d(144, 72, kernel_size=3, padding=1, stride=1)
+        self.bn3 = nn.BatchNorm2d(72)
+
+        # self.conv4 = nn.Conv2d(288, 144, kernel_size=1, stride=1)
+        # self.bn4 = nn.BatchNorm2d(144)
+
+        # self.conv5 = nn.Conv2d(144, 72, kernel_size=1, stride=1)
+
 
     def forward(self, x):
 
@@ -425,7 +436,12 @@ class R1(nn.Module):
         x2 = self.bn2(x2)
         x2 = F.relu(x2)
 
-        return x2
+        # 144 -> 72
+        x3 = self.conv3(x2)
+        x3 = self.bn3(x3)
+        x3 = F.relu(x3)
+
+        return x3
 
 class R2(nn.Module):
     """
@@ -450,44 +466,75 @@ class R2(nn.Module):
 
         super(R2, self).__init__()
 
-        self.maxpool0 = nn.AdaptiveMaxPool2d((46, 46))
+        # UMP specific layers (based on intuition)
         self.softmax0 = nn.Softmax2d()
 
-        self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
-        self.bn3 = nn.BatchNorm2d(288)
+        # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
+        # self.bn3 = nn.BatchNorm2d(288)
 
         # self.conv3 = nn.Conv2d(144, 72, kernel_size=3, padding=1, stride=1)
 
-        self.conv4 = nn.Conv2d(288, 144, kernel_size=1, stride=1)
-        self.bn4 = nn.BatchNorm2d(144)
+        # self.conv4 = nn.Conv2d(288, 144, kernel_size=1, stride=1)
+        # self.bn4 = nn.BatchNorm2d(144)
 
-        self.conv5 = nn.Conv2d(144, 72, kernel_size=1, stride=1)
+        # self.conv5 = nn.Conv2d(144, 72, kernel_size=1, stride=1)
+        
 
-        self.head = create_head(72, 8)
+        # 72x46x46 -> 8x46x46
+        # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
+
+        # Head
+        self.head = create_head(144, 8)
+        # self.aapool = nn.AdaptiveAvgPool2d(1)
+        # self.ampool = nn.AdaptiveMaxPool2d(1)
+        # self.flat = nn.Flatten()
+        # self.bn7 = nn.BatchNorm1d(6*46*46)
+        # self.do7 = nn.Dropout1d()
+        # self.ln7 = nn.Linear(6*46*46, 1440)
+        # self.relu = nn.ReLU()
+        # self.bn8 = nn.BatchNorm1d(1440)
+        # self.do8 = nn.Dropout1d()
+        # self.ln8 = nn.Linear(1440, 8)
 
 
     def forward(self, x2):
 
         # 144 -> 432
-        x2_1 = self.maxpool0(x2) # 144
+        # x2_1 = self.maxpool0(x2) # 144, 46x46
         x2_2 = self.softmax0(x2) # 144
-        x2_3 = torch.cat([x2, x2_1, x2_2], dim= 1) # 432
+        x2_3 = torch.cat([x2, x2_2], dim= 1) # 144
+        x2_std = x2.std(dim= (2, 3)) # 144 values
 
-        # 432 -> 288
-        x3 = self.conv3(x2_3)
-        x3 = self.bn3(x3)
-        x3 = F.relu(x3)
+        # # 432 -> 288
+        # x3 = self.conv3(x2_3)
+        # x3 = self.bn3(x3)
+        # x3 = F.relu(x3)
 
-        # 288 -> 144
-        x4 = self.conv4(x3)
-        x4 = self.bn4(x4)
-        x4 = F.relu(x4)
+        # # 288 -> 144
+        # x4 = self.conv4(x3)
+        # x4 = self.bn4(x4)
+        # x4 = F.relu(x4)
 
-        # 144 -> 72
-        x5 = self.conv5(x4)
-        x5 = F.relu(x5)
+        # # 144 -> 72
+        # x5 = self.conv5(x4)
+        # x5 = F.relu(x5)
 
-        # 72 -> 8
-        x6 = self.head(x5)
+        # # 72 -> 8
+        # x6 = self.conv6(x5)
 
-        return x6
+        # 288 -> 8
+        # aapool7 = self.aapool(x6).squeeze() # 288 values
+        # ampool7 = self.ampool(x6).squeeze() # 288 values
+        # x7 = self.flat(torch.cat([aapool7, ampool7, x2_std], dim= 1)) # 720 values
+        # x7 = self.bn7(x7)
+        # x7 = self.do7(x7)
+        # x7 = self.ln7(x7)
+        # x7 = self.relu(x7)
+        # x7 = self.bn8(x7)
+        # x7 = self.do8(x7)
+        # x7 = self.ln8(x7)
+
+        # 8 -> 8
+        x7 = self.head(x2_3)
+
+        return x7
