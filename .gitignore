@@ -177,6 +177,7 @@ cython_debug/
 fastbook/
 
 results/
+logs/
 
 # Models
 *.pth
