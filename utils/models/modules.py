@@ -1,6 +1,8 @@
+from ast import List
 from collections import OrderedDict
 import math
 from multiprocessing import pool
+from turtle import forward
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -113,18 +115,23 @@ class E_densenet(nn.Module):
 
 class E_senet(nn.Module):
 
-    def __init__(self, original_model, x_norms, num_features = 2048):
+    def __init__(self, original_model, x_norms, channels= [1, 2, 3]):
         super(E_senet, self).__init__()
 
         self.base = nn.Sequential(*list(original_model.children())[:-3])
 
         self.x_norms = x_norms
+        self.channels = channels
 
         #self.conv = nn.Conv2d(3, 64 , kernel_size=5, stride=1, bias=False)
         #self.bn = nn.BatchNorm2d(64)
       
-        self.pool = nn.MaxPool2d(3, stride=2,ceil_mode=True)
-        self.down = _UpProjection(64,128)
+        self.pool = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.down = _UpProjection(64, 128)
+
+    def set_channels(self, channels= [1, 2, 3]):
+        self.channels = channels
+        return
 
     def forward(self, x):
         #conv_x = F.relu(self.conv(x))
@@ -133,23 +140,49 @@ class E_senet(nn.Module):
         #summary(self.base, input_size=(3, 440, 440))
 
         # Normalise x first
-        for channel in range(x.shape[1]):
-            x[:, channel] = self.x_norms[channel].transform(x[:, channel])
+        x_normed = copy.deepcopy(x)
 
-        x_block0 = self.base[0][0:6](x)
-        x = self.base[0][6:](x_block0)
+        for channel in range(x.shape[1]):
+            x_normed[:, channel] = self.x_norms[self.channels[channel]].transform(x[:, channel])
+
+        # for channel in range(len(self.channels)):
+        #     x_normed[:, channel] = (x[:, channel] / self.self.channels[channel]) * 255
+
+
+
+        try:
+            if x_normed.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
+
+        x_block0 = self.base[0][0:6](x_normed)
+        try:
+            if x_block0.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
+
+        x_normed = self.base[0][6:](x_block0)
         
+        try:
+            if x_normed.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
 
         # x = self.Harm(x)
         # x = self.pool(x)
         # x = self.down(x,(110,110))
 
-        x_block1 = self.base[1](x)
+        x_block1 = self.base[1](x_normed)
         x_block2 = self.base[2](x_block1)
         x_block3 = self.base[3](x_block2)
         x_block4 = self.base[4](x_block3)
         return x_block0,  x_block1, x_block2, x_block3, x_block4
-
 
 
 class D2(nn.Module):
@@ -606,8 +639,8 @@ class R2_1(nn.Module):
 
         # 144 -> 432
         # x2_1 = self.maxpool0(x2) # 144, 46x46
-        x2_2 = self.softmax0(x2) # 144
-        # x2_2 = self.sigmoid0(x2) # 144
+        # x2_2 = self.softmax0(x2) # 144
+        x2_2 = self.sigmoid0(x2) # 144
         x2_3 = torch.cat([x2, x2_2], dim= 1) # 144 channels
         x2_std = x2_3.std(dim= (2, 3)) # 144 values
 
