@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import math
+from multiprocessing import pool
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -17,6 +18,7 @@ import scipy.io as sio
 
 from fastai.vision.all import create_head
 from fastai.vision.all import AdaptiveConcatPool2d
+from fastai.layers import Flatten
 
 
 class _UpProjection(nn.Sequential):
@@ -177,8 +179,8 @@ class D2(nn.Module):
        
 
 
-    def forward(self,x_block0, x_block1, x_block2, x_block3, x_block4):
-
+    def forward(self, x_block0, x_block1, x_block2, x_block3, x_block4):
+        # 42, 256, 512, 1024, 2048 features for blocks 0-4
         x_d0 = F.relu(self.bn(self.conv(x_block4)))
 
 
@@ -457,7 +459,7 @@ class R2(nn.Module):
 
     # Layers\n
     - Convolutions\n
-    - Softmax\n
+    - Sigmoid\n
     - Standard Deviation...?
 
 
@@ -467,7 +469,8 @@ class R2(nn.Module):
         super(R2, self).__init__()
 
         # UMP specific layers (based on intuition)
-        self.softmax0 = nn.Softmax2d()
+        # self.softmax0 = nn.Softmax2d()
+        self.sigmoid0 = nn.Sigmoid()
 
         # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
         # self.bn3 = nn.BatchNorm2d(288)
@@ -484,7 +487,7 @@ class R2(nn.Module):
         # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
 
         # Head
-        self.head = create_head(144, 8)
+        self.head = create_head(216, 8)
         # self.aapool = nn.AdaptiveAvgPool2d(1)
         # self.ampool = nn.AdaptiveMaxPool2d(1)
         # self.flat = nn.Flatten()
@@ -501,9 +504,12 @@ class R2(nn.Module):
 
         # 144 -> 432
         # x2_1 = self.maxpool0(x2) # 144, 46x46
-        x2_2 = self.softmax0(x2) # 144
+        # x2_2 = self.softmax0(x2) # 144
+        x2_2 = self.sigmoid0(x2) # 144
         x2_3 = torch.cat([x2, x2_2], dim= 1) # 144
         x2_std = x2.std(dim= (2, 3)) # 144 values
+        x2_std = x2_std.unsqueeze(2).unsqueeze(2).expand(-1, -1, 46, 46)
+        x2_3 = torch.cat([x2_3, x2_std], dim= 1) # 288
 
         # # 432 -> 288
         # x3 = self.conv3(x2_3)
@@ -536,5 +542,104 @@ class R2(nn.Module):
 
         # 8 -> 8
         x7 = self.head(x2_3)
+
+        return x7
+
+class R2_1(nn.Module):
+    """
+    Final (head) for model, which aims to extract the UMPs after feature extraction in the earlier stages.\n
+    Features to extract: 'height_avg_bld', 'height_avg_area', 'height_avg_total', 'height_std',\n
+       'height_max', 'height_percentile', 'planar_index', 'frontal_index'\n
+    
+    # Intuition\n
+    Height_avg family can do well with just simple convolution, ideally weights are equal-ish\n
+    Height_std needs cannot be achieved easily with convolutions because it is not a "feature" per-se, nor can it be solved linearly\n
+    Planar index might require softmax and then a convolution\n
+    Frontal index might require top edge detection from previous convolutions, and combine that with height data\n
+
+    # Layers\n
+    - Convolutions\n
+    - Sigmoid\n
+    - Standard Deviation
+
+
+    """
+    def __init__(self):
+
+        super(R2_1, self).__init__()
+
+        # UMP specific layers (based on intuition)
+        # self.softmax0 = nn.Softmax2d()
+        self.sigmoid0 = nn.Sigmoid()
+
+        # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
+        # self.bn3 = nn.BatchNorm2d(288)
+
+        # self.conv3 = nn.Conv2d(144, 72, kernel_size=3, padding=1, stride=1)
+
+        # self.conv4 = nn.Conv2d(288, 144, kernel_size=1, stride=1)
+        # self.bn4 = nn.BatchNorm2d(144)
+
+        # self.conv5 = nn.Conv2d(144, 72, kernel_size=1, stride=1)
+        
+
+        # 72x46x46 -> 8x46x46
+        # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
+
+        # Head
+        self.head = create_head(144, 8)
+        self.adaptccpool = AdaptiveConcatPool2d(1)
+
+        self.aapool = nn.AdaptiveAvgPool2d(1)
+        self.ampool = nn.AdaptiveMaxPool2d(1)
+        self.flat = Flatten(full= False)
+        self.bn7 = nn.BatchNorm1d(432, eps= 1e-05, momentum= 0.1, affine= True, track_running_stats= True)
+        self.do7 = nn.Dropout1d(p=0.25, inplace= False)
+        self.ln7 = nn.Linear(432, 1024, bias= False)
+        self.relu = nn.ReLU()
+        self.bn8 = nn.BatchNorm1d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        self.do8 = nn.Dropout1d(p=0.5, inplace=False)
+        self.ln8 = nn.Linear(1024, 8, bias=False)
+
+
+    def forward(self, x2):
+
+        # 144 -> 432
+        # x2_1 = self.maxpool0(x2) # 144, 46x46
+        x2_2 = self.softmax0(x2) # 144
+        # x2_2 = self.sigmoid0(x2) # 144
+        x2_3 = torch.cat([x2, x2_2], dim= 1) # 144 channels
+        x2_std = x2_3.std(dim= (2, 3)) # 144 values
+
+
+        # 72x46x46 -> (2x)72
+        # Due to version issues can only squeeze one dimension at a time
+        # Essentially squeezing (2, 3) here
+        # aapool7 = torch.squeeze(self.aapool(x2_3), dim= 2) # 72 values
+        # aapool7 = torch.squeeze(aapool7, dim= 2) # 72 values
+        
+        # ampool7 = torch.squeeze(self.ampool(x2_3), dim= 2) # 72 values
+        # ampool7 = torch.squeeze(ampool7, dim= 2) # 72 values
+        
+        pooled7 = self.adaptccpool(x2_3) 
+        pooled7 = self.flat(pooled7) # 288 values
+
+        # 144 -> 288
+        # x7 = torch.cat([aapool7, ampool7, x2_std], dim= 1) # 216 values
+        x7 = torch.cat([pooled7, x2_std], dim= 1) # 432 values
+        x7 = self.bn7(x7)
+        x7 = self.do7(x7)
+
+        # 288 -> 512
+        x7 = self.ln7(x7)
+        x7 = self.relu(x7)
+        x7 = self.bn8(x7)
+        x7 = self.do8(x7)
+
+        # 512 -> 8
+        x7 = self.ln8(x7)
+
+        # 8 -> 8
+        # x7 = self.head(x2_3)
 
         return x7
