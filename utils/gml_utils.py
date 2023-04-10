@@ -392,7 +392,7 @@ class GridGenerator():
             min_y = self.min_y
             max_y = self.max_y  
             
-        grids = [[x, y] for x in range(min_x, max_x, step) for y in range(min_y, max_y, step)]
+        grids = [[x, y] for x in np.arange(min_x, max_x, step) for y in np.arange(min_y, max_y, step)]
 
         grids = [self.generateCell(*grid, width= width) for grid in grids]
 
@@ -486,7 +486,14 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
 
         # Standard deviation
         r["StandardDeviation"] = 0
-        # Create a grid width 0.1 m, 
+        # Create a grid width 0.1 m as resolution
+        # Take a point at the center and get the polygon with the highest height that contains this point
+        # If no polygon contains this point, then height will be 0
+        # Collate the heights into a geoseries and do std on it to obtain the standard deviation
+        sub_grid = GridGenerator(clip_poly)
+        sub_grid = sub_grid.generateGrid(0.1, 0.1)
+        sub_grid["ctr"] = sub_grid.centroid
+
             
         # Lazy Frontal Area
         df_clipped["frontal_area"] = df_clipped.apply(calculateFrontalArea, axis= 1)
@@ -494,47 +501,7 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         r["FrontalAreaIndex"] = frontal_area / total_area
     
     r["Percentile"] = percentile
-
-    # df_clipped["frontal_area"] = df_clipped.apply(lambda x: x["height"] * max(x["geometry"].exterior.coords.xy[0]) - min(x["geometry"].exterior.coords.xy[0])), axis= 1)
     
-
-    # Frontal Area
-    # for poly in df_clipped.itertuples():
-    #     # Get the height
-    #     height = poly[1]
-
-    #     # List containing all points + one more (initial)
-    #     points_lst = list(poly[3].exterior.coords)
-    #     points_lst.append(points_lst[0])
-       
-        
-    #     # Points that are invalid cause they are on the border
-    #     invalid_lst = []
-        
-    #     frontal_span = 0
-    #     span_minx = None
-    #     span_maxx = None
-
-    #     # Returns back to the original point to ensure that all edges are checked 
-    #     for p in points_lst:
-    #         if span_minx is None or span_minx > p[0]:
-    #             span_minx = p[0]
-    #         if span_maxx is None or span_maxx < p[0]:
-    #             span_maxx = p[0]
-    #         # If point is at top edge (max y), consider it invalid (top is "front" for calc of frontal area hence only top considered)
-            
-    #         invalid_lst.append(p)
-    #         # This assumes the points are cyclical
-    #         if len(invalid_lst) == 2:
-    #             for subp in invalid_lst:
-    #                 if subp[1] == max_y:
-    #                     frontal_span -= abs(invalid_lst[0][0] - invalid_lst[1][0])
-    #             invalid_lst = []
-    #     debug_frontal += frontal_span
-    #     frontal_span += span_maxx - span_minx
-    #     # To account for computational shennanigans
-    #     if frontal_span < 0: frontal_span = 0
-    #     frontal_area += frontal_span * height
     
     # Sort the dictionary
     myKeys = list(r.keys())
