@@ -494,7 +494,12 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         df_clipped["frontal_area"] = df_clipped.apply(calculateFrontalArea, axis= 1)
         frontal_area = df_clipped["frontal_area"].sum()
         r["FrontalAreaIndex"] = frontal_area / total_area
-    
+
+        # zero-plane displacement
+        # https://link.springer.com/article/10.1007/s10546-014-9985-4#:~:text=calculated%20from%20MD1998.-,KA2013,-expands%20the%20parametrization
+        X = (r["StandardDeviation"] + r["AverageHeightTotalArea"]) / r["MaximumHeight"]
+        d = (-0.17*(X**2) + (1.29*(r["PlanarAreaIndex"]**0.36) + 0.17) * X) / r["MaximumHeight"]
+        r["Displacement"] = d
     r["Percentile"] = percentile
     
     
