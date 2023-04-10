@@ -11,6 +11,7 @@ import xml.dom.minidom
 
 import pandas as pd
 import numpy as np
+import math
 os.environ['USE_PYGEOS'] = '0'
 import geopandas as gpd
 import dask_geopandas as dgpd
@@ -485,16 +486,10 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         r["PercentileHeight"] = np.percentile(df_clipped["height"], percentile)
 
         # Standard deviation
-        r["StandardDeviation"] = 0
-        # Create a grid width 0.1 m as resolution
-        # Take a point at the center and get the polygon with the highest height that contains this point
-        # If no polygon contains this point, then height will be 0
-        # Collate the heights into a geoseries and do std on it to obtain the standard deviation
-        sub_grid = GridGenerator(clip_poly)
-        sub_grid = sub_grid.generateGrid(0.1, 0.1)
-        sub_grid["ctr"] = sub_grid.centroid
+        # Just treat it as a probability distribution
+        # Get a GeoSeries of the difference to mean squared, times the "probability" aka area
+        r["StandardDeviation"] = math.sqrt(df_clipped.apply(lambda x:((x["height"] - r["AverageHeightTotalArea"])**2) * x["geometry"].area, axis= 1).sum() / total_area)      
 
-            
         # Lazy Frontal Area
         df_clipped["frontal_area"] = df_clipped.apply(calculateFrontalArea, axis= 1)
         frontal_area = df_clipped["frontal_area"].sum()
