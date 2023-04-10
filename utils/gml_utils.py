@@ -495,11 +495,25 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         frontal_area = df_clipped["frontal_area"].sum()
         r["FrontalAreaIndex"] = frontal_area / total_area
 
-        # zero-plane displacement
+        # Zero-plane displacement
         # https://link.springer.com/article/10.1007/s10546-014-9985-4#:~:text=calculated%20from%20MD1998.-,KA2013,-expands%20the%20parametrization
+        # Regressed constants
+        a_0, b_0, c_0 = 1.29, 0.36, -0.17
         X = (r["StandardDeviation"] + r["AverageHeightTotalArea"]) / r["MaximumHeight"]
-        d = (-0.17*(X**2) + (1.29*(r["PlanarAreaIndex"]**0.36) + 0.17) * X) / r["MaximumHeight"]
+        d = (c_0*(X**2) + (a_0*(r["PlanarAreaIndex"]**b_0) - c_0) * X) / r["MaximumHeight"]
         r["Displacement"] = d
+
+        # Aerodynamic Roughness Length
+        # Regressed constants
+        a_1, b_1, c_1 = 0.7076, 20.2067, -0.7711
+        beta = 1
+        c_lb = 1.2 # Drag coefficient
+        k = 0.4 # von Karman constant
+
+        z_mac = (1 - d / r["AverageHeightTotalArea"]) * math.exp(-(0.5 * beta * c_lb/(k**2) * ((1-d/r["AverageHeightTotalArea"])) * r["FrontalAreaIndex"])**(-0.5)) * r["AverageHeightTotalArea"]
+        Y = (r["PlanarAreaIndex"] * r["StandardDeviation"]) / r["AverageHeightTotalArea"]
+        z_kanda = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac
+        r["RoughnessLength"] = z_kanda
     r["Percentile"] = percentile
     
     
