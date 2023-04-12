@@ -435,12 +435,14 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
     - AverageHeightArea\n
     - AverageHeightBuilding\n
     - AverageHeightTotalArea\n
+    - Displacement
+    - FrontalAreaIndex\n
     - MaximumHeight\n
     - PercentileHeight\n
     - Percentile\n
-    - StandardDeviation\n
     - PlanarAreaIndex\n
-    - FrontalAreaIndex\n
+    - RoughnessLength
+    - StandardDeviation\n
     """
     # Clip the shapedf to desired area
     df_clipped = gpd.clip(shp_df, clip_poly)
@@ -468,6 +470,8 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         r["PercentileHeight"] = 0
         r["StandardDeviation"] = 0
         r["FrontalAreaIndex"] = 0
+        r["Displacement"] = 0
+        r["RoughnessLength"] = 0
 
     else:
         planar_area = df_clipped["area"].sum()
@@ -501,6 +505,10 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         a_0, b_0, c_0 = 1.29, 0.36, -0.17
         X = (r["StandardDeviation"] + r["AverageHeightTotalArea"]) / r["MaximumHeight"]
         d = (c_0*(X**2) + (a_0*(r["PlanarAreaIndex"]**b_0) - c_0) * X) / r["MaximumHeight"]
+
+        # For cases where there are no buildings/height is 0
+        if math.isnan(d):
+            d = 0
         r["Displacement"] = d
 
         # Aerodynamic Roughness Length
@@ -513,11 +521,15 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         z_mac = (1 - d / r["AverageHeightTotalArea"]) * math.exp(-(0.5 * beta * c_lb/(k**2) * ((1-d/r["AverageHeightTotalArea"])) * r["FrontalAreaIndex"])**(-0.5)) * r["AverageHeightTotalArea"]
         Y = (r["PlanarAreaIndex"] * r["StandardDeviation"]) / r["AverageHeightTotalArea"]
         z_kanda = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac
+
+        # For cases where there are no buildings/height is 0
+        if math.isnan(z_kanda):
+            z_kanda = 0
         r["RoughnessLength"] = z_kanda
     r["Percentile"] = percentile
     
     # Add the key in form of the geometry
-    r["geometry"] = clip_poly
+    # r["geometry"] = clip_poly
 
     # Sort the dictionary
     myKeys = list(r.keys())
