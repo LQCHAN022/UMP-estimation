@@ -36,7 +36,7 @@ class BaseDownloader(ABC):
 
     def merge_patches(self, base_filename):
         # retrieve all patches
-        filenames = natsorted(glob.glob(os.path.join(self.cache_dir, f"{base_filename}_*.tif")))
+        filenames = natsorted(glob.glob(os.path.join(self.cache_dir, f"{base_filename}_*.tiff")))
         patches = []
         for filename in filenames:
             patch = rasterio.open(filename)
@@ -53,7 +53,7 @@ class BaseDownloader(ABC):
             }
         )
 
-        filename = f"{self.dataset_name}_{Path(filenames[0]).name.split('_')[-2]}.tif"
+        filename = f"{self.dataset_name}_{Path(filenames[0]).name.split('_')[-2]}.tiff"
         outfile = os.path.join(self.root, filename)
         with rasterio.open(outfile, "w", **output_meta) as f:
             f.write(mosaic)
@@ -82,7 +82,7 @@ class BaseDownloader(ABC):
         for i, save_params in enumerate(save_params_list):
             url = image.getDownloadUrl(save_params)
             future = session.get(url)
-            future.filename = os.path.join(self.cache_dir, f"{self.dataset_name}_{base_filename}_{i}.tif")
+            future.filename = os.path.join(self.cache_dir, f"{self.dataset_name}_{base_filename}_{i}.tiff")
             futures.append(future)
 
         for future in as_completed(futures):
@@ -94,7 +94,3 @@ class BaseDownloader(ABC):
 
         # merge
         self.merge_patches(f"{self.dataset_name}_{base_filename}")
-
-    # @abstractmethod
-    # def download_images(self):
-    #     pass

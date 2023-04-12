@@ -516,7 +516,9 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         r["RoughnessLength"] = z_kanda
     r["Percentile"] = percentile
     
-    
+    # Add the key in form of the geometry
+    r["geometry"] = clip_poly
+
     # Sort the dictionary
     myKeys = list(r.keys())
     myKeys.sort()
