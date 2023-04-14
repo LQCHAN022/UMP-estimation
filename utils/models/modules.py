@@ -115,12 +115,12 @@ class E_densenet(nn.Module):
 
 class E_senet(nn.Module):
 
-    def __init__(self, original_model, x_norms, channels= [1, 2, 3]):
+    def __init__(self, original_model, channel_max, channels= [1, 2, 3]):
         super(E_senet, self).__init__()
 
         self.base = nn.Sequential(*list(original_model.children())[:-3])
 
-        self.x_norms = x_norms
+        self.channel_max = channel_max
         self.channels = channels
 
         #self.conv = nn.Conv2d(3, 64 , kernel_size=5, stride=1, bias=False)
@@ -140,15 +140,13 @@ class E_senet(nn.Module):
         #summary(self.base, input_size=(3, 440, 440))
 
         # Normalise x first
-        x_normed = copy.deepcopy(x)
+        x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
 
-        for channel in range(x.shape[1]):
-            x_normed[:, channel] = self.x_norms[self.channels[channel]].transform(x[:, channel])
-
-        # for channel in range(len(self.channels)):
-        #     x_normed[:, channel] = (x[:, channel] / self.self.channels[channel]) * 255
-
-
+        for channel_count in range(x.shape[1]):
+            x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
+        
+        # In place clipping
+        x_normed = torch.clip(x_normed, 0, 255)
 
         try:
             if x_normed.isnan().sum() > 0:
@@ -238,11 +236,11 @@ class D2(nn.Module):
 
         
 
-        x_d4 = self.up4(cx_d3, [x_block1.size(2)*2, x_block1.size(3)*2])
+        x_d4 = self.up4(cx_d3, [x_block0.shape[2], x_block0.shape[2]])
 
 
 
-        cx_d4 = torch.cat((x_d4,x_block0),1)
+        cx_d4 = torch.cat((x_d4,x_block0), 1)
         cx_d4 = F.relu(self.bn3(self.conv4(cx_d4)))
 
 
@@ -520,7 +518,7 @@ class R2(nn.Module):
         # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
 
         # Head
-        self.head = create_head(216, 8)
+        self.head = create_head(216, 10)
         # self.aapool = nn.AdaptiveAvgPool2d(1)
         # self.ampool = nn.AdaptiveMaxPool2d(1)
         # self.flat = nn.Flatten()
@@ -541,7 +539,7 @@ class R2(nn.Module):
         x2_2 = self.sigmoid0(x2) # 144
         x2_3 = torch.cat([x2, x2_2], dim= 1) # 144
         x2_std = x2.std(dim= (2, 3)) # 144 values
-        x2_std = x2_std.unsqueeze(2).unsqueeze(2).expand(-1, -1, 46, 46)
+        x2_std = x2_std.unsqueeze(2).unsqueeze(2).expand(-1, -1, x2_3.shape[2], x2_3.shape[3])
         x2_3 = torch.cat([x2_3, x2_std], dim= 1) # 288
 
         # # 432 -> 288
