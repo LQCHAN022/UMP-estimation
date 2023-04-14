@@ -3,6 +3,7 @@ This is a collection of functions and classes that are used in the processing of
 from initial loading in to the final output as Urban Morphological Parameters (UMPs)
 """
 import os.path
+import utils.istarmap as istarmap # Patches mp with this to enable tqdm
 from multiprocessing import Pool
 
 from itertools import repeat
@@ -25,6 +26,8 @@ import matplotlib.tri as tri
 from shapely.geometry import LineString
 from shapely.geometry import Polygon
 from shapely.ops import linemerge
+
+import tqdm
 
 ### Convert GML to feather ###
 
@@ -542,3 +545,71 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
 
     # return {"AverageHeightArea":r["AverageHeightArea"]}
     return r
+
+def calculateUMP_batch(shp_df, clip_poly_list, percentile= 98):
+    """
+    Calculates UMP in batches of cells, wraps around the calculateUMP function\n
+    Function is defined here instead of utils as multiprocessing only can pickle top-level defined functions\n
+    # Parameters:\n
+    - shp_df: The `GeoDataFrame` that contains the building data
+    - clip_poly_list: A `List` of `Polygon`s that each acts as a cell for which the UMP will be calculated
+    - percentile: The percentile to get for the one of the UMPs 'PercentileHeight'
+    """
+    # print("Start Batch:", batch_no)
+    r = []
+
+    for cell in clip_poly_list:
+        d = {"geometry":cell}
+        d.update(calculateUMP(shp_df, cell, percentile))
+        r.append(d)
+    
+    r_gdf = gpd.GeoDataFrame.from_dict(r)
+    return r_gdf
+
+# Divide into n portions, with n overlap
+
+def split_polygon(bounding_polygon: shapely.Polygon, n_splits: int, buffer: float):
+    """
+    Takes a `Polygon` and returns an evenly split `List` of `Polygon`s based on its envelope
+    """  
+    min_x, min_y, max_x, max_y = bounding_polygon.envelope.bounds
+    width = max_x - min_x
+    height = max_y - min_y
+    width_step = width / n_splits
+    height_step = height / n_splits
+
+    # len should be == n_splits
+    segments = [shapely.Polygon([
+        (x - buffer, y - buffer), # LL
+        (x + width_step + buffer, y - buffer), # LR
+        (x + width_step + buffer, y + height_step + buffer), # UR
+        (x - buffer, y + height_step + buffer), # UL
+        ]) 
+        for x in np.linspace(min_x, max_x, num= n_splits, endpoint= False) 
+        for y in np.linspace(min_y, max_y, num= n_splits, endpoint= False)]
+    
+    return segments
+
+def parallel_UMP_calc(building_gdf: gpd.GeoDataFrame, grid_gdf: gpd.GeoDataFrame, segments, n_processes):
+    """
+    Takes in a GeoDataFrame of building footprints and height, and a `List` of `Polygons`, for each of which to calculate the UMP for buildings within
+    """
+    # Divide the grids
+    segmented_grid = []
+    for segment in segments:
+        # Only includes cells that are fully within the segment
+        segmented_grid.append(grid_gdf["geometry"][grid_gdf["geometry"].within(segment)])
+
+    # Divide the gdf
+    segmented_gdf = []
+    for segment in segments:
+        # Buildings are just clipped
+        segmented_gdf.append(building_gdf.clip(segment))
+
+    # Runs in parallel, but no point in more processes than segments
+    result = []
+    with Pool(min(n_processes, len(segments))) as pool:
+        for r in tqdm.tqdm(pool.istarmap(calculateUMP_batch, zip(segmented_gdf, segmented_grid)), total= len(segmented_gdf)):
+            result.append(r)
+    
+    return result
