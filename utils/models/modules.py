@@ -141,6 +141,7 @@ class E_senet(nn.Module):
 
         # Normalise x first
         x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
+        # x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
 
         for channel_count in range(x.shape[1]):
             x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
@@ -518,7 +519,8 @@ class R2(nn.Module):
         # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
 
         # Head
-        self.head = create_head(216, 10)
+        self.head = create_head(216, 8)
+        # self.head = create_head(216, 10)
         # self.aapool = nn.AdaptiveAvgPool2d(1)
         # self.ampool = nn.AdaptiveMaxPool2d(1)
         # self.flat = nn.Flatten()

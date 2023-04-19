@@ -208,6 +208,130 @@ class model_n12(nn.Module):
         return out
 
 
+class model_n12_visualise(nn.Module):
+    """
+    Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
+    """
+    def __init__(self, Encoder, num_features, block_channel):
+        """
+        # Parameters:\n
+        - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
+        - head: The head of the model, takes in output from the body and outputs it as the output of this model\n
+        - cut: The index to cut the body after, ie. body = body[:cut]. Defaults to None. \n
+
+        """
+
+        super(model_n12_visualise, self).__init__()
+        
+        # self.E0, self.E1, self.E2, self.E3 = Encoders
+        # Instantiate Encoders and set their channels
+        self.E0 = Encoder
+        self.E1 = copy.deepcopy(Encoder)
+        self.E2 = copy.deepcopy(Encoder)
+        self.E3 = copy.deepcopy(Encoder)
+
+        # Set their respective channels for normalisation
+        self.E0.set_channels(list(range(0, 3)))
+        self.E1.set_channels(list(range(3, 6)))
+        self.E2.set_channels(list(range(6, 9)))
+        self.E3.set_channels(list(range(9, 12)))
+
+        # Mergers for the different channels
+        self.M0 = nn.Conv2d(256, 64, 1, 1)
+        self.M1 = nn.Conv2d(1024, 256, 1, 1)
+        self.M2 = nn.Conv2d(2048, 512, 1, 1)
+        self.M3 = nn.Conv2d(4096, 1024, 1, 1)
+        self.M4 = nn.Conv2d(8192, 2048, 1, 1)
+
+        self.D2 = modules.D2(num_features = num_features)
+        self.MFF = modules.MFF(block_channel)
+        self.R = modules.R1()
+        self.R2 = modules.R2()
+
+
+    def forward(self, x):
+        
+        
+        # First Encoder (Channels 1-3)
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E0(x[:, 0:3])
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+        # Second Encoder (Channels 4-6)
+        x_block0_temp, x_block1_temp, x_block2_temp, x_block3_temp, x_block4_temp = self.E1(x[:, 3:6])
+        x_block0 = torch.cat([x_block0, x_block0_temp], 1)
+        x_block1 = torch.cat([x_block1, x_block1_temp], 1)
+        x_block2 = torch.cat([x_block2, x_block2_temp], 1)
+        x_block3 = torch.cat([x_block3, x_block3_temp], 1)
+        x_block4 = torch.cat([x_block4, x_block4_temp], 1)
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+        # Third Encoder (Channels 7-9)
+        x_block0_temp, x_block1_temp, x_block2_temp, x_block3_temp, x_block4_temp = self.E2(x[:, 6:9])
+        x_block0 = torch.cat([x_block0, x_block0_temp], 1)
+        x_block1 = torch.cat([x_block1, x_block1_temp], 1)
+        x_block2 = torch.cat([x_block2, x_block2_temp], 1)
+        x_block3 = torch.cat([x_block3, x_block3_temp], 1)
+        x_block4 = torch.cat([x_block4, x_block4_temp], 1)
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+        # Fourth Encoder (Channels 10-12)
+        x_block0_temp, x_block1_temp, x_block2_temp, x_block3_temp, x_block4_temp = self.E3(x[:, 9:12])
+        x_block0 = torch.cat([x_block0, x_block0_temp], 1)
+        x_block1 = torch.cat([x_block1, x_block1_temp], 1)
+        x_block2 = torch.cat([x_block2, x_block2_temp], 1)
+        x_block3 = torch.cat([x_block3, x_block3_temp], 1)
+        x_block4 = torch.cat([x_block4, x_block4_temp], 1)
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+        # Clear Memory
+        # del x_block0_temp, x_block1_temp, x_block2_temp, x_block3_temp, x_block4_temp
+        # torch.cuda.empty_cache()
+
+        x_block0 = self.M0(x_block0)
+        x_block1 = self.M1(x_block1)
+        x_block2 = self.M2(x_block2)
+        x_block3 = self.M3(x_block3)
+        x_block4 = self.M4(x_block4)
+       
+
+        x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
+
+        x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4, [x_decoder.size(2), x_decoder.size(3)]) 
+
+        x_R1 = self.R(torch.cat((x_decoder, x_mff), 1))
+
+        # out = self.R2(x_R1) 
+
+        # try:
+        #     if out.isnan().sum() > 0:
+        #         raise ValueError
+        # except:
+        #     pass
+
+        return x_R1
+        # return out
+
+
 
 
 

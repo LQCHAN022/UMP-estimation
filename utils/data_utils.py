@@ -93,7 +93,7 @@ def plotUMP(gdf, band_names= UMP, n_col= 2):
 class UMPDataset(Dataset):
     """Urban Morphological Parameters - Sentinel Dataset"""
 
-    def __init__(self, ump_df, dir_path, file_ext= ".tiff", transform= None):
+    def __init__(self, ump_df, dir_path, file_ext= ".tiff", transform= None, return_coords= False):
         """
         # Parameters:
             - ump_df: DataFrame containing the geometry of each cell with its corresponding UMPs.
@@ -108,10 +108,11 @@ class UMPDataset(Dataset):
         # Look in both current and sub-directories
         self.files = glob.glob(f"{self.dir_path}/**/*{self.file_ext}") + glob.glob(f"{self.dir_path}/*{self.file_ext}")
         self.transform = transform
+        self.return_coords = return_coords
 
         # Generate the max and min for each channel and each UMP
         self.channel_max = [0 for _ in range(12)]
-        self.UMP_max = [0 for _ in range(10)]
+        self.UMP_max = [0 for _ in range(8)]
         # Using the roundabout way because there seems to be a bug with iterating directly
         for entry in range(len(self)):
             data_piece = self[entry]
@@ -162,7 +163,10 @@ class UMPDataset(Dataset):
             "StandardDeviation",
         ]].astype("f"))
         
-        out = [image, umps, self.ump_df["geometry"][idx].bounds]
+        if self.return_coords:
+            out = [image, umps, self.ump_df["geometry"][idx].bounds]
+        else:
+            out = [image, umps]
 
         if self.transform:
             out = self.transform(out)
