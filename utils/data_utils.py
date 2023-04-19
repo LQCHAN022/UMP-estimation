@@ -14,22 +14,32 @@ from torch.utils.data import Dataset
 
 from osgeo import gdal
 
+UMP = ["AverageHeightArea", 
+            "AverageHeightBuilding", 
+            "AverageHeightTotalArea", 
+            "Displacement", 
+            "FrontalAreaIndex",
+            "MaximumHeight",
+            "PercentileHeight",
+            "PlanarAreaIndex",
+            "RoughnessLength",
+            "StandardDeviation"]
 
 def plotArray(arr, n_channels= None, 
-band_names= [
-        'B1: Aerosols',
-        'B2: Blue',
-        'B3: Green',
-        'B4: Red',
-        'B5: Red Edge 1',
-        'B6: Red Edge 2',
-        'B7: Red Edge 3',
-        'B8: NIR',
-        'B8A: Red Edge 4',
-        'B9: Water Vapor',
-        'B11: SWIR 1',
-        'B12: SWIR 2'
-    ]):
+    band_names= [
+            'B1: Aerosols',
+            'B2: Blue',
+            'B3: Green',
+            'B4: Red',
+            'B5: Red Edge 1',
+            'B6: Red Edge 2',
+            'B7: Red Edge 3',
+            'B8: NIR',
+            'B8A: Red Edge 4',
+            'B9: Water Vapor',
+            'B11: SWIR 1',
+            'B12: SWIR 2'
+        ]):
     """
     Plot the all the channels in the 3D array (C x H x W)
 
@@ -55,6 +65,28 @@ band_names= [
             band_count += 1
             # fig.colorbar(f_img, ax= axs[col, row])
             plt.colorbar()
+    plt.show()
+
+def plotUMP(gdf, band_names= UMP, n_col= 2):
+    """
+    Plot all the UMPs on a Map
+
+    # Parameters\n
+    - gdf: GeoDataFrame\n
+    - band_names: Used for labelling the plots, if any
+    
+    """
+
+    ump_count = 0
+    n_ump = len(gdf.columns) - 1 # -1 for the geometry column
+    fig, axs = plt.subplots(math.ceil(n_ump/n_col), n_col, figsize= (n_col*5, math.ceil(n_ump/n_col)*6))
+    for col in range(math.ceil(n_ump/n_col)):
+        for row in range(n_col):
+            # f = plt.subplot(5, 2, ump_count+1)
+            f_img = gdf.plot(column= band_names[ump_count], alpha= 0.5, ax= axs[col, row], legend= True)
+            f_img.set_title(band_names[ump_count])
+            # plt.title(band_names[ump_count])
+            ump_count += 1
     plt.show()
 
 
@@ -121,20 +153,31 @@ class UMPDataset(Dataset):
             "AverageHeightArea", 
             "AverageHeightBuilding", 
             "AverageHeightTotalArea", 
-            "Displacement", 
+            # "Displacement", 
             "FrontalAreaIndex",
             "MaximumHeight",
             "PercentileHeight",
             "PlanarAreaIndex",
-            "RoughnessLength",
+            # "RoughnessLength",
             "StandardDeviation",
         ]].astype("f"))
         
-        out = [image, umps]
+        out = [image, umps, self.ump_df["geometry"][idx].bounds]
 
         if self.transform:
             out = self.transform(out)
         
         return out
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            return map(self.__getitem__, range(self.__len__()))
+
+        per_worker = int(math.ceil((self.__len__()) / float(worker_info.num_workers)))
+        worker_id = worker_info.id
+        iter_start = worker_id * per_worker
+        iter_end = min(iter_start + per_worker, self.__len__())
+        return map(self.__getitem__, range(iter_start, iter_end))
         
 
