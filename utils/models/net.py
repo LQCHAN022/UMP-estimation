@@ -208,6 +208,70 @@ class model_n12(nn.Module):
         return out
 
 
+class model_n12_light(nn.Module):
+    """
+    Light version, which uses the merger in the beginning to merge the channels, without duplicating the Encoder
+    """
+    def __init__(self, Encoder, num_features, block_channel):
+        """
+        # Parameters:\n
+        - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
+        - head: The head of the model, takes in output from the body and outputs it as the output of this model\n
+        - cut: The index to cut the body after, ie. body = body[:cut]. Defaults to None. \n
+
+        """
+
+        super(model_n12_light, self).__init__()
+        
+        # Mergers for the different channels
+        self.M0 = nn.Conv2d(12, 3, 1, 1)
+
+        # Instantiate Encoders and set their channels
+        self.E = Encoder
+
+        # Set their respective channels for normalisation
+        self.E.set_channels(list(range(0, 3)))
+
+
+        self.D2 = modules.D2(num_features = num_features)
+        self.MFF = modules.MFF(block_channel)
+        self.R = modules.R1()
+        self.R2 = modules.R2()
+
+
+    def forward(self, x):
+        
+        # Merge the channels
+        x = self.M0(x)
+
+        # First Encoder (Channels 1-3)
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E0(x[:, 0:3])
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+       
+
+        x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
+
+        x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4, [x_decoder.size(2), x_decoder.size(3)]) 
+
+        x_R1 = self.R(torch.cat((x_decoder, x_mff), 1))
+
+        out = self.R2(x_R1) 
+
+        try:
+            if out.isnan().sum() > 0:
+                raise ValueError
+        except:
+            pass
+
+        return out
+
+
 class model_n12_visualise(nn.Module):
     """
     Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
