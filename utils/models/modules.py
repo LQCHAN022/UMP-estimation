@@ -503,6 +503,8 @@ class R2(nn.Module):
         # UMP specific layers (based on intuition)
         # self.softmax0 = nn.Softmax2d()
         self.sigmoid0 = nn.Sigmoid()
+        self.sigmoid1 = nn.Sigmoid()
+        self.sigmoid2 = nn.Sigmoid()
 
         # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
         # self.bn3 = nn.BatchNorm2d(288)
@@ -575,6 +577,8 @@ class R2(nn.Module):
 
         # 8 -> 8
         x7 = self.head(x2_3)
+        x7[:, 3] = self.sigmoid1(x7[:, 3])
+        x7[:, 6] = self.sigmoid2(x7[:, 6])
 
         return x7
 
