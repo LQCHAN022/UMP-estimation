@@ -245,7 +245,7 @@ class model_n12_light(nn.Module):
         x = self.M0(x)
 
         # First Encoder (Channels 1-3)
-        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E0(x[:, 0:3])
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 0:3])
 
         try:
             if x_block0.isnan().sum() > 0:
