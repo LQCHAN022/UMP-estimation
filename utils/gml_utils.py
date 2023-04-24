@@ -473,9 +473,9 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         r["AverageHeightTotalArea"] = 0
         r["PercentileHeight"] = 0
         r["StandardDeviation"] = 0
-        r["FrontalAreaIndex"] = 0
+        r["FrontalAreaIndex"] = [0] * 4
         r["Displacement"] = 0
-        r["RoughnessLength"] = 0
+        r["RoughnessLength"] = [0] * 4
 
     else:
         planar_area = df_clipped["area"].sum()
