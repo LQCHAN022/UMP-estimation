@@ -444,6 +444,7 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
     - PercentileHeight\n
     - Percentile\n
     - PlanarAreaIndex\n
+    - Rotation\n
     - RoughnessLength
     - StandardDeviation\n
     """
@@ -495,12 +496,18 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         # Standard deviation
         # Just treat it as a probability distribution
         # Get a GeoSeries of the difference to mean squared, times the "probability" aka area
-        r["StandardDeviation"] = math.sqrt(df_clipped.apply(lambda x:((x["height"] - r["AverageHeightTotalArea"])**2) * x["geometry"].area, axis= 1).sum() / total_area)      
+        r["StandardDeviation"] = math.sqrt(df_clipped.apply(lambda x:((x["height"] - r["AverageHeightTotalArea"])**2) * x["geometry"].area, axis= 1).sum() / total_area)    
 
+        # Do a frontal area for each rotation (just 90 is enough)
+        
         # Lazy Frontal Area
-        df_clipped["frontal_area"] = df_clipped.apply(calculateFrontalArea, axis= 1)
-        frontal_area = df_clipped["frontal_area"].sum()
-        r["FrontalAreaIndex"] = frontal_area / total_area
+        frontal_area_lst = []
+        # 0/180 degrees rotation
+        frontal_area_lst.append(df_clipped.apply(calculateFrontalArea, axis= 1).sum())
+        # 90/270 rotation
+        frontal_area_lst.append(gpd.GeoDataFrame(geometry= df_clipped.rotate(90, origin= df_clipped.unary_union.centroid), data= df_clipped["height"]).apply(calculateFrontalArea, axis= 1).sum())
+        # df_clipped["frontal_area"] = frontal_area_lst * 2
+        r["FrontalAreaIndex"] = [frontal_area / total_area for frontal_area in frontal_area_lst] * 2
 
         # Zero-plane displacement
         # https://link.springer.com/article/10.1007/s10546-014-9985-4#:~:text=calculated%20from%20MD1998.-,KA2013,-expands%20the%20parametrization
@@ -525,15 +532,20 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         c_lb = 1.2 # Drag coefficient
         k = 0.4 # von Karman constant
 
-        z_mac = (1 - d_mac / r["AverageHeightTotalArea"]) * math.exp(-((0.5 * beta * c_lb/(k**2) * (1-d_mac/r["AverageHeightTotalArea"]) * r["FrontalAreaIndex"])**(-0.5))) * r["AverageHeightTotalArea"]
+        z_mac_0 = (1 - d_mac / r["AverageHeightTotalArea"]) * math.exp(-((0.5 * beta * c_lb/(k**2) * (1-d_mac/r["AverageHeightTotalArea"]) * r["FrontalAreaIndex"][0])**(-0.5))) * r["AverageHeightTotalArea"]
+        z_mac_90 = (1 - d_mac / r["AverageHeightTotalArea"]) * math.exp(-((0.5 * beta * c_lb/(k**2) * (1-d_mac/r["AverageHeightTotalArea"]) * r["FrontalAreaIndex"][1])**(-0.5))) * r["AverageHeightTotalArea"]
         Y = (r["PlanarAreaIndex"] * r["StandardDeviation"]) / r["AverageHeightTotalArea"]
-        z_kanda = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac
+        z_kanda_0 = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac_0
+        z_kanda_90 = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac_90
 
         # For cases where there are no buildings/height is 0
-        if math.isnan(z_kanda):
-            z_kanda = 0
-        r["RoughnessLength"] = z_kanda
+        if math.isnan(z_kanda_0):
+            z_kanda_0 = 0
+        if math.isnan(z_kanda_90):
+            z_kanda_90 = 0
+        r["RoughnessLength"] = [z_kanda_0, z_kanda_90] * 2
     r["Percentile"] = percentile
+    r["Rotation"] = [0, 90, 180, 270]
     
     # Add the key in form of the geometry
     # r["geometry"] = clip_poly
