@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import Dataset
 
 from osgeo import gdal
+from scipy.ndimage import rotate
 
 UMP = ["AverageHeightArea", 
             "AverageHeightBuilding", 
@@ -150,6 +151,9 @@ class UMPDataset(Dataset):
             if image.shape[0] != 12:
                 raise ValueError(f"Incorrect number of channels, {image.shape[0]} channels present when 12 expected")
         
+        rot = self.ump_df["Rotation"][idx]
+        image = rotate(image, rot, axes= (2, 1)) # axes is 2, 1 cause axis 0 is the batch
+
         umps = np.array(self.ump_df.iloc[idx][[
             "AverageHeightArea", 
             "AverageHeightBuilding", 
