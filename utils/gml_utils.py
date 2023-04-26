@@ -31,12 +31,14 @@ import tqdm
 
 ### Convert GML to feather ###
 
-def multi_to_poly(geometry):
+def multi_to_poly(geometry, cur= 0, depth= 5):
+    if cur > depth:
+        return geometry
     if isinstance(geometry, shapely.Polygon):
         return geometry
     elif isinstance(geometry, shapely.MultiPolygon):
-        return shapely.ops.unary_union(list(geometry.geoms))
-
+        return multi_to_poly(shapely.ops.unary_union(list(geometry.geoms)), cur+1, depth)
+        
 def xml_extract_gdf(in_path, 
     lod_tag= "bldg:lod1Solid", 
     polygon_tag= "gml:Polygon", 
