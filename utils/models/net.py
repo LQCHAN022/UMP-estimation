@@ -52,7 +52,7 @@ class model(nn.Module):
     """
     Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
     """
-    def __init__(self, Encoder, num_features, block_channel):
+    def __init__(self, Encoder, num_features, block_channel, slice_input= False):
         """
         # Parameters:\n
         - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
@@ -68,11 +68,16 @@ class model(nn.Module):
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R1()
         self.R2 = modules.R2()
+        self.slice_input = slice_input
 
 
     def forward(self, x):
-
-        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x)
+        
+        # For use in > 3 channel images without proper dataset preprocessing
+        if self.slice_input:
+            x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 1:4])
+        else:
+            x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x)
 
         x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
 
@@ -212,7 +217,7 @@ class model_n12_light(nn.Module):
     """
     Light version, which uses the merger in the beginning to merge the channels, without duplicating the Encoder
     """
-    def __init__(self, Encoder, num_features, block_channel):
+    def __init__(self, Encoder, num_features, block_channel, n_out= 8, sigmoid_i= [3, 6]):
         """
         # Parameters:\n
         - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
@@ -236,13 +241,16 @@ class model_n12_light(nn.Module):
         self.D2 = modules.D2(num_features = num_features)
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R1()
-        self.R2 = modules.R2()
+        self.R2 = modules.R2(n_out= n_out, sigmoid_i= sigmoid_i)
 
 
     def forward(self, x):
         
         # Merge the channels
         x = self.M0(x)
+
+        # ReLU as activation function
+        x = F.relu(x)
 
         # First Encoder (Channels 1-3)
         x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 0:3])
