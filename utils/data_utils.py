@@ -8,6 +8,7 @@ import glob
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import tqdm
 
 import torch
 from torch.utils.data import Dataset
@@ -94,7 +95,25 @@ def plotUMP(gdf, band_names= UMP, n_col= 2):
 class UMPDataset(Dataset):
     """Urban Morphological Parameters - Sentinel Dataset"""
 
-    def __init__(self, ump_df, dir_path, file_ext= ".tiff", transform= None, return_coords= False):
+    def __init__(
+        self, 
+        ump_df, 
+        dir_path, 
+        file_ext= ".tiff", 
+        transform= None, 
+        return_coords= False, 
+        ump= [
+            "AverageHeightArea", 
+            "AverageHeightBuilding", 
+            "AverageHeightTotalArea", 
+            # "Displacement", 
+            "FrontalAreaIndex",
+            "MaximumHeight",
+            "PercentileHeight",
+            "PlanarAreaIndex",
+            # "RoughnessLength",
+            "StandardDeviation",
+        ]):
         """
         # Parameters:
             - ump_df: DataFrame containing the geometry of each cell with its corresponding UMPs.
@@ -104,6 +123,7 @@ class UMPDataset(Dataset):
             - file_ext: Extension of the file eg. .tiff / .tif
         """
         self.ump_df = ump_df
+        self.ump = ump
         self.dir_path = dir_path
         self.file_ext = file_ext
         # Look in both current and sub-directories
@@ -111,24 +131,28 @@ class UMPDataset(Dataset):
         self.transform = transform
         self.return_coords = return_coords
 
-        # Generate the max and min for each channel and each UMP
+        # Generate the max and min for each channel
         self.channel_max = [0 for _ in range(12)]
-        self.UMP_max = [0 for _ in range(8)]
+        self.UMP_max = [0 for _ in range(len(self.ump))]
         # Using the roundabout way because there seems to be a bug with iterating directly
-        for entry in range(len(self)):
+        for entry in tqdm.tqdm(range(len(self)), desc= "Finding max for image channels"):
             data_piece = self[entry]
             image = data_piece[0]
-            UMPs = data_piece[1]
             for channel in range(len(image)):
                 # The image
                 cur_max = image[channel].max()
                 if cur_max > self.channel_max[channel]:
                     self.channel_max[channel] = cur_max
             
-            for ump in range(len(UMPs)):
-                cur_max = UMPs[ump]
-                if cur_max > self.UMP_max[ump]:
-                    self.UMP_max[ump] = cur_max        
+            # for ump in range(len(UMPs)):
+            #     cur_max = UMPs[ump]
+            #     if cur_max > self.UMP_max[ump]:
+            #         self.UMP_max[ump] = cur_max 
+
+        # Generate the max for each UMP
+        for param in range(len(self.ump)):
+            param_stat = dict(self.ump_df[self.ump[param]].describe())
+            self.UMP_max[param] = param_stat["max"]
     
     def __len__(self):
         return len(self.ump_df)
@@ -154,18 +178,7 @@ class UMPDataset(Dataset):
         rot = self.ump_df["Rotation"][idx]
         image = rotate(image, rot, axes= (2, 1)) # axes is 2, 1 cause axis 0 is the batch
 
-        umps = np.array(self.ump_df.iloc[idx][[
-            "AverageHeightArea", 
-            "AverageHeightBuilding", 
-            "AverageHeightTotalArea", 
-            # "Displacement", 
-            "FrontalAreaIndex",
-            "MaximumHeight",
-            "PercentileHeight",
-            "PlanarAreaIndex",
-            # "RoughnessLength",
-            "StandardDeviation",
-        ]].astype("f"))
+        umps = np.array(self.ump_df.iloc[idx][self.ump].astype("f"))
         
         if self.return_coords:
             out = [image, umps, self.ump_df["geometry"][idx].bounds]
@@ -187,5 +200,31 @@ class UMPDataset(Dataset):
         iter_start = worker_id * per_worker
         iter_end = min(iter_start + per_worker, self.__len__())
         return map(self.__getitem__, range(iter_start, iter_end))
+
+    def set_ump(self, ump):
+        """
+        Sets the UMPs that the dataset will update.
+        # Parameters:
+        - ump: List of string that filters the umps from the dataset.
+            - Available umps include: 
+                - AverageHeightArea
+                - AverageHeightBuilding 
+                - AverageHeightTotalArea
+                - Displacement
+                - FrontalAreaIndex
+                - MaximumHeight
+                - PercentileHeight
+                - PlanarAreaIndex
+                - RoughnessLength
+                - StandardDeviation
+        """
+        self.ump = ump
+        self.UMP_max = [0 for _ in range(len(self.ump))]
+
+        # Generate the max for each UMP
+        for param in range(len(self.ump)):
+            param_stat = dict(self.ump_df[self.ump[param]].describe())
+            self.UMP_max[param] = param_stat["max"]
+
         
 
