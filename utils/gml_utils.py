@@ -520,7 +520,7 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         # Regressed constants
         a_0, b_0, c_0 = 1.29, 0.36, -0.17
         X = (r["StandardDeviation"] + r["AverageHeightTotalArea"]) / r["MaximumHeight"]
-        d = (c_0*(X**2) + (a_0*(r["PlanarAreaIndex"]**b_0) - c_0) * X) / r["MaximumHeight"]
+        d = (c_0*(X**2) + (a_0*(r["PlanarAreaIndex"]**b_0) - c_0) * X) * r["MaximumHeight"]
 
         # For cases where there are no buildings/height is 0
         if math.isnan(d):
