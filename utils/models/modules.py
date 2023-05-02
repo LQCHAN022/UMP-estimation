@@ -587,7 +587,8 @@ class R2(nn.Module):
         # Apply sigmoid to the frontal and planar indexes
         x7[:, self.sigmoid_i[0]] = self.sigmoid1(x7[:, self.sigmoid_i[0]])
         x7[:, self.sigmoid_i[1]] = self.sigmoid2(x7[:, self.sigmoid_i[1]])
-
+        x7 = F.relu(x7)
+        
         return x7
 
 class R2_1(nn.Module):
