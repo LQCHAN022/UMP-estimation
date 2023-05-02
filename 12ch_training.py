@@ -1,9 +1,10 @@
-# Ensures runtime code is updated when source code of libraries are updated as well
-
 # Import of necessary libraries
 
 import os
 os.environ['USE_PYGEOS'] = '0'
+import sys
+import argparse
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import pickle
@@ -17,6 +18,7 @@ import tqdm
 from osgeo import gdal
 import geopandas as gpd
 import shapely
+from scipy.ndimage import rotate
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
@@ -39,7 +41,8 @@ from utils.models import modules
 from utils.models import net
 # Check if gpu/cuda is available
 import torch
-torch.cuda.is_available()
+from functools import partial
+
 # Constants
 CHECKPT_PATH = "pretrained_model/im2elevation/Block0_skip_model_110.pth.tar"
 UMP = ["AverageHeightArea", 
@@ -53,100 +56,18 @@ UMP = ["AverageHeightArea",
             # "RoughnessLength",
             "StandardDeviation"]
 
-## Build Dataset
-Y_tokyo = gpd.read_feather("data/Y_UMP/Y_tokyo_4.feather")
-ds_tokyo = du.UMPDataset(Y_tokyo, "data/X_sentinel/tokyo")
-Y_osaka = gpd.read_feather("data/Y_UMP/Y_osaka_4.feather")
-ds_osaka = du.UMPDataset(Y_osaka, "data/X_sentinel/osaka")
-ds_osaka[0][0].dtype, ds_osaka[0][1].dtype
-#### Old Dataset
-with open("data/x_train_tokyo.pkl", "rb") as f:
-    old_x_train = pickle.load(f)
+parser = argparse.ArgumentParser()
 
-with open("data/x_val_tokyo.pkl", "rb") as f:
-    old_x_val = pickle.load(f)
+parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
+parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
+parser.add_argument("--epoch", type= int, default= 10)
+parser.add_argument("--batchsize", type= int, default= 64)
+parser.add_argument("--root", type= str, default= "overnight_results", help= "Place to store results, ie. Weights and plots")
 
-with open("data/y_train_tokyo.pkl", "rb") as f:
-    old_y_train = pickle.load(f)
-
-with open("data/y_val_tokyo.pkl", "rb") as f:
-    old_y_val = pickle.load(f)
-
-# Reorder old_y_
-old_y_train = old_y_train[:, [1, 0, 2, 7, 4, 5, 6, 3]]
-old_y_val = old_y_val[:, [1, 0, 2, 7, 4, 5, 6, 3]]
-## Old
-old_dls = DataLoaders().from_dsets(list(zip(old_x_train, old_y_train)), list(zip(old_x_val, old_y_val)), bs= 8, device=torch.device('cuda'))
-# Adapting the old dataset to the new dataset format
-# Generate the max and min for each channel and each UMP
-
-old_ds_channel_max = [0 for _ in range(12)]
-old_ds_UMP_max = [0 for _ in range(8)]
-# Using the roundabout way because there seems to be a bug with iterating directly
-for entry in range(len(old_x_train)):
-    image = old_x_train[entry]
-    UMPs = old_y_train[entry]
-    for channel in range(len(image)):
-        # The image
-        cur_max = image[channel].max()
-        if cur_max > old_ds_channel_max[channel]:
-            old_ds_channel_max[channel] = cur_max
-    
-    for ump in range(len(UMPs)):
-        cur_max = UMPs[ump]
-        if cur_max > old_ds_UMP_max[ump]:
-            old_ds_UMP_max[ump] = cur_max
-
-old_ds_channel_max, old_ds_UMP_max
-
-dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= 8, device=torch.device('cuda'))
-
-# Load weights from IM2ELEVATION and delete unnecessary layers
-checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
-# checkpoint = torch.load("trained_models/model_customhead_w_64_40.pth")
-
-to_delete = []
-# for layer in checkpoint.keys():
-for layer in checkpoint["state_dict"].keys():
-    if any([word in layer.upper() for word in ["HARM", "R.CONV4", "R.BN4", "R2"]]):
-    # if any([word in layer.upper() for word in ["HARM", "R.CONV3", "R.BN3", "R.CONV4", "R.BN4"]]):
-        to_delete.append(layer)
-print(to_delete)
-
-for i in to_delete:
-    # checkpoint.pop(i)
-    checkpoint["state_dict"].pop(i)
-
-# Load Weights
-ssl._create_default_https_context = ssl._create_unverified_context
-
-original_model = senet.senet154()
-
-Encoder = modules.E_senet(original_model, dl.train_ds.channel_max) # For new ds
-# Encoder = modules.E_senet(original_model, old_ds_channel_max) # For old ds
-# model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-
-model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+args = parser.parse_args()
 
 
-
-# Duplicate the weights for the encoders
-for k in list(checkpoint["state_dict"].keys()):
-    if "E." in k:
-        for i in range(4):
-            checkpoint["state_dict"][f"E{i}." + k[2:]] = checkpoint["state_dict"][k]
-# Load weights
-model.load_state_dict(checkpoint["state_dict"], strict=False)
-
-# Clear memory
-del checkpoint
-gc.collect()
-torch.cuda.empty_cache()
-
-# Loss Function
-
-def mse_weighted(pred, actual, UMP_max= old_ds_UMP_max):
-# def mse_weighted(pred, actual, UMP_max= dl.train_ds.UMP_max):
+def mse_weighted(pred, actual, UMP_max):
     """
     Weighted loss function that normalises the predictions based on the parameters used to normalise the actual during training
     """
@@ -159,19 +80,6 @@ def mse_weighted(pred, actual, UMP_max= old_ds_UMP_max):
         raise ValueError([pred, actual])
     return loss.float()
 
-# List of metrics
-"""
-"AverageHeightArea", 
-"AverageHeightBuilding", 
-"AverageHeightTotalArea", 
-"Displacement", 
-"FrontalAreaIndex",
-"MaximumHeight",
-"PercentileHeight",
-"PlanarAreaIndex",
-"RoughnessLength",
-"StandardDeviation"
-"""
 def AverageHeightArea_RMSE(pred, actual):
     return math.sqrt(F.mse_loss(pred[:, 0], actual[:, 0]))
 
@@ -219,16 +127,102 @@ metrics = [
     # RoughnessLength_RMSE,
     StandardDeviation_RMSE
 ]
-### Train Model
-# Need better loss due to scale difference
-model.train()
-learn = Learner(old_dls, model, loss_func= mse_weighted, metrics= metrics, cbs=[MixedPrecision, FP16TestCallback])
-# learn = Learner(dl, model, loss_func= mse_weighted, metrics= metrics, cbs=[MixedPrecision, FP16TestCallback])
-learn.fine_tune(5, 0.001, freeze_epochs= 1, cbs= [ShowGraphCallback()])
-# Plateaus around 30
-name = "v5_oldds_ump_cut_12ch_8_30" # <description>_<batch_size>_<epochs>
-torch.save(model.state_dict(), f"trained_models/model_weight_{name}.pth")
-# torch.save(model, f"trained_models/model_{name}.pth")
 
-with open(f"trained_models/model_records_{name}.pkl", "wb") as f:
-    pickle.dump(learn.recorder.values, f)
+def main():
+# Prepare datasets
+
+    with open("data/ds_tokyo.pkl", "rb") as f:
+        ds_tokyo = pickle.load(f)
+
+    with open("data/ds_osaka.pkl", "rb") as f:
+        ds_osaka = pickle.load(f)
+
+    with open("data/ds_tokyo_distinct.pkl", "rb") as f:
+        ds_tokyo_distinct = pickle.load(f)
+
+    # Create dataloader based on arg and batchsize
+    if args.dataset == "Toyko_Osaka":
+        dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= args.batchsize, device=torch.device('cuda'))
+    elif args.dataset == "Tokyo_Tokyo":
+        dl = DataLoaders().from_dsets(*torch.utils.data.random_split(ds_tokyo_distinct, [0.8, 0.2]), bs= args.batchsize, device=torch.device('cuda'))
+    # Not going to vary for now since both are trained on tokyo
+    channel_max = ds_tokyo.channel_max
+    UMP_max = ds_tokyo.UMP_max
+
+
+    # Instantiate model
+
+    # Load weights from IM2ELEVATION and delete unnecessary layers
+    checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
+    to_delete = []
+    for layer in checkpoint["state_dict"].keys():
+        if any([word in layer.upper() for word in ["HARM", "R.CONV4", "R.BN4", "R2"]]):
+            to_delete.append(layer)
+    for i in to_delete:
+        checkpoint["state_dict"].pop(i)
+
+    # Load Weights
+    ssl._create_default_https_context = ssl._create_unverified_context
+    original_model = senet.senet154()
+    Encoder = modules.E_senet(original_model, channel_max) # For new ds
+
+    ## 3ch, 12ch_light, 12ch_mod, 12ch_full
+    ### 3ch
+    # Gonna assume that input dataloaders are all 12 channels
+    if args.model == "3ch":
+        model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], slice_input= True)
+    ### 12ch_light
+    elif args.model == "12ch_light":
+        model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+    elif args.model == "12ch_mod":
+        Encoder.channels = list(range(12))
+        model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+        # Modify weights
+        conv1 = next(next(next(next(model.children()).children()).children()).children())
+        in_chans = 12
+        conv1_weight = conv1.weight.float()
+        conv1_type = conv1_weight.dtype
+        repeat = int(math.ceil(in_chans / 3))
+        conv1_weight = conv1_weight.repeat(1, repeat, 1, 1)[:, :in_chans, :, :]
+        conv1_weight *= (3 / float(in_chans))
+        conv1_weight = conv1_weight.to(conv1_type)
+        checkpoint["state_dict"]["E.base.0.conv1.weight"] = conv1_weight
+        # Modify channel size
+        old_weight = conv1.weight.data
+        new_weight = torch.zeros((64, 12, 3, 3))
+        new_weight[:, :old_weight.shape[1], :, :] = old_weight
+        conv1.weight.data = new_weight
+    elif args.model == "12ch_full":
+        model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+    else:
+        print(f"Model {args.model} does not exist, please choose from [3ch, 12ch_light, 12ch_mod, 12ch_full]")
+        return
+        
+    # Load weights
+    model.load_state_dict(checkpoint["state_dict"], strict=False)
+
+    # Clear memory
+    del checkpoint
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Define loss function based on the dataset (since Y changes)
+    loss_func = partial(mse_weighted, UMP_max= UMP_max)
+
+    learn = Learner(dl, model, loss_func= loss_func, metrics= metrics, cbs=[MixedPrecision, FP16TestCallback])
+
+    learn.fine_tune(args.epoch, 0.001, freeze_epochs= 1, cbs= [ShowGraphCallback()])
+
+    dt = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    name = f"{args.model}_{args.dataset}_{args.batchsize}_{args.epoch}"
+
+    # Save the weights
+    torch.save(model.state_dict(), f"{args.root}/{name}.pth")
+
+    # Save the results
+    with open(f"{args.root}/recorder_{name}.pkl", "wb") as f:
+        pickle.dump(learn.recorder, f)
+
+
+if __name__ == "__main__":
+    main()
