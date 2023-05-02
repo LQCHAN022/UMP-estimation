@@ -140,11 +140,15 @@ class E_senet(nn.Module):
         #summary(self.base, input_size=(3, 440, 440))
 
         # Normalise x first
-        x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
+        x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
+        # x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
         # x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
 
-        for channel_count in range(x.shape[1]):
-            x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
+        x_normed = torch.div(x, torch.tensor([self.channel_max[i] for i in self.channels], device= "cuda").unsqueeze(0).unsqueeze(2).unsqueeze(2))
+
+        # for channel_count in range(x.shape[1]):
+        #     x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
+            # x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
         
         # In place clipping
         x_normed = torch.clip(x_normed, 0, 255)
@@ -496,7 +500,7 @@ class R2(nn.Module):
 
 
     """
-    def __init__(self):
+    def __init__(self, n_out= 8, sigmoid_i= [3, 6]):
 
         super(R2, self).__init__()
 
@@ -505,6 +509,8 @@ class R2(nn.Module):
         self.sigmoid0 = nn.Sigmoid()
         self.sigmoid1 = nn.Sigmoid()
         self.sigmoid2 = nn.Sigmoid()
+
+        self.sigmoid_i = sigmoid_i
 
         # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
         # self.bn3 = nn.BatchNorm2d(288)
@@ -521,7 +527,7 @@ class R2(nn.Module):
         # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
 
         # Head
-        self.head = create_head(216, 8)
+        self.head = create_head(216, n_out)
         # self.head = create_head(216, 10)
         # self.aapool = nn.AdaptiveAvgPool2d(1)
         # self.ampool = nn.AdaptiveMaxPool2d(1)
@@ -577,8 +583,10 @@ class R2(nn.Module):
 
         # 8 -> 8
         x7 = self.head(x2_3)
-        x7[:, 3] = self.sigmoid1(x7[:, 3])
-        x7[:, 6] = self.sigmoid2(x7[:, 6])
+
+        # Apply sigmoid to the frontal and planar indexes
+        x7[:, self.sigmoid_i[0]] = self.sigmoid1(x7[:, self.sigmoid_i[0]])
+        x7[:, self.sigmoid_i[1]] = self.sigmoid2(x7[:, self.sigmoid_i[1]])
 
         return x7
 
