@@ -303,4 +303,8 @@ for epoch in range(EPOCHS):
         model_path = 'overnight_results/model_{}_{}'.format(timestamp, epoch_number)
         torch.save(model.state_dict(), model_path)
 
+<<<<<<< Updated upstream
     epoch_number += 1
+=======
+    epoch_number += 1
+>>>>>>> Stashed changes
