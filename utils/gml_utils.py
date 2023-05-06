@@ -516,10 +516,15 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         # d_mac dimensionless constants
         alpha = 4.43
 
-        d_mac = (1+4.43**(-r["PlanarAreaIndex"])*(r["PlanarAreaIndex"] - 1))*r["AverageHeightTotalArea"]
+        d_mac = (1+alpha**(-r["PlanarAreaIndex"])*(r["PlanarAreaIndex"] - 1))*r["AverageHeightTotalArea"]
         # Regressed constants
         a_0, b_0, c_0 = 1.29, 0.36, -0.17
         X = (r["StandardDeviation"] + r["AverageHeightTotalArea"]) / r["MaximumHeight"]
+<<<<<<< Updated upstream
+=======
+        # Clip X
+        X = np.clip(X, 0, 1)
+>>>>>>> Stashed changes
         d = (c_0*(X**2) + (a_0*(r["PlanarAreaIndex"]**b_0) - c_0) * X) * r["MaximumHeight"]
 
         # For cases where there are no buildings/height is 0
@@ -537,6 +542,7 @@ def calculateUMP(shp_df, clip_poly, percentile= 98):
         z_mac_0 = (1 - d_mac / r["AverageHeightTotalArea"]) * math.exp(-((0.5 * beta * c_lb/(k**2) * (1-d_mac/r["AverageHeightTotalArea"]) * r["FrontalAreaIndex"][0])**(-0.5))) * r["AverageHeightTotalArea"]
         z_mac_90 = (1 - d_mac / r["AverageHeightTotalArea"]) * math.exp(-((0.5 * beta * c_lb/(k**2) * (1-d_mac/r["AverageHeightTotalArea"]) * r["FrontalAreaIndex"][1])**(-0.5))) * r["AverageHeightTotalArea"]
         Y = (r["PlanarAreaIndex"] * r["StandardDeviation"]) / r["AverageHeightTotalArea"]
+        Y = np.clip(Y, 0, None)
         z_kanda_0 = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac_0
         z_kanda_90 = (b_1 * Y**2 + c_1 * Y + a_1) * z_mac_90
 

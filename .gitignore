@@ -185,5 +185,7 @@ logs/
 pretrained_model/
 trained_models/
 
-test*.py
-test*.ipynb
+test*
+models/
+runs/
+overnight_results/
