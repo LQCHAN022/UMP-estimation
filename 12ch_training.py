@@ -14,12 +14,14 @@ import matplotlib.pyplot as plt
 import gc
 import ssl
 import tqdm
+import argparse
 
 from osgeo import gdal
 import geopandas as gpd
 import shapely
 from scipy.ndimage import rotate
 
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from sklearn.preprocessing import Normalizer
@@ -33,41 +35,86 @@ from fastai.tabular.all import *
 import utils.data_utils as du
 import utils.sp_utils as sp
 
-
 # User modules
 
 from utils.models import senet
 from utils.models import modules
 from utils.models import net
-# Check if gpu/cuda is available
-import torch
-from functools import partial
-
-# Constants
-CHECKPT_PATH = "pretrained_model/im2elevation/Block0_skip_model_110.pth.tar"
-UMP = ["AverageHeightArea", 
-            "AverageHeightBuilding", 
-            "AverageHeightTotalArea", 
-            # "Displacement", 
-            "FrontalAreaIndex",
-            "MaximumHeight",
-            "PercentileHeight",
-            "PlanarAreaIndex",
-            # "RoughnessLength",
-            "StandardDeviation"]
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
-parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
+# parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
+# parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
 parser.add_argument("--epoch", type= int, default= 10)
 parser.add_argument("--batchsize", type= int, default= 64)
-parser.add_argument("--root", type= str, default= "overnight_results", help= "Place to store results, ie. Weights and plots")
+# parser.add_argument("--root", type= str, default= "overnight_results", help= "Place to store results, ie. Weights and plots")
 
 args = parser.parse_args()
 
 
-def mse_weighted(pred, actual, UMP_max):
+
+# Constants
+CHECKPT_PATH = "pretrained_model/im2elevation/Block0_skip_model_110.pth.tar"
+UMP = [
+        "AverageHeightArea", 
+        "AverageHeightBuilding", 
+        "AverageHeightTotalArea", 
+        # "Displacement", 
+        "FrontalAreaIndex",
+        "MaximumHeight",
+        "PercentileHeight",
+        "PlanarAreaIndex",
+        # "RoughnessLength",
+        "StandardDeviation"]
+
+with open("data/ds_tokyo_2.pkl", "rb") as f:
+    ds_tokyo = pickle.load(f)
+
+with open("data/ds_osaka_2.pkl", "rb") as f:
+    ds_osaka = pickle.load(f)
+
+ds_tokyo.set_UMPs(UMP)
+ds_osaka.set_UMPs(UMP)
+
+dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= args.batchsize, device=torch.device('cuda'))
+
+# Load weights from IM2ELEVATION and delete unnecessary layers
+checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
+# checkpoint = torch.load("trained_models/model_customhead_w_64_40.pth")
+
+to_delete = []
+# for layer in checkpoint.keys():
+for layer in checkpoint["state_dict"].keys():
+    if any([word in layer.upper() for word in ["HARM", "R.CONV4", "R.BN4", "R2"]]):
+    # if any([word in layer.upper() for word in ["HARM", "R.CONV3", "R.BN3", "R.CONV4", "R.BN4"]]):
+        to_delete.append(layer)
+print(to_delete)
+
+for i in to_delete:
+    # checkpoint.pop(i)
+    checkpoint["state_dict"].pop(i)
+
+# Load Weights
+ssl._create_default_https_context = ssl._create_unverified_context
+
+original_model = senet.senet154()
+
+Encoder = modules.E_senet(original_model, dl.train_ds.channel_max) # For new ds
+# Encoder = modules.E_senet(original_model, old_ds_channel_max) # For old ds
+# model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+
+# model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= 8, sigmoid_idx= [3, 6])
+
+# Load weights
+model.load_state_dict(checkpoint["state_dict"], strict=False)
+
+# Clear memory
+del checkpoint
+gc.collect()
+torch.cuda.empty_cache()
+
+def mse_weighted(pred, actual, UMP_max= dl.train_ds.UMP_max):
     """
     Weighted loss function that normalises the predictions based on the parameters used to normalise the actual during training
     """
@@ -80,149 +127,180 @@ def mse_weighted(pred, actual, UMP_max):
         raise ValueError([pred, actual])
     return loss.float()
 
-def AverageHeightArea_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 0], actual[:, 0]))
+# List of metrics
+"""
+"AverageHeightArea", 
+"AverageHeightBuilding", 
+"AverageHeightTotalArea", 
+"Displacement", 
+"FrontalAreaIndex",
+"MaximumHeight",
+"PercentileHeight",
+"PlanarAreaIndex",
+"RoughnessLength",
+"StandardDeviation"
+"""
+def AverageHeightArea_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def AverageHeightBuilding_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 1], actual[:, 1]))
+def AverageHeightBuilding_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def AverageHeightTotalArea_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 2], actual[:, 2]))
+def AverageHeightTotalArea_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-# def Displacement_RMSE(pred, actual):
-#     return math.sqrt(F.mse_loss(pred[:, 3], actual[:, 3]))
+def Displacement_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def FrontalAreaIndex_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 3], actual[:, 3]))
-    # return math.sqrt(F.mse_loss(pred[:, 4], actual[:, 4]))
+def FrontalAreaIndex_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def MaximumHeight_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 4], actual[:, 4]))
-    # return math.sqrt(F.mse_loss(pred[:, 5], actual[:, 5]))
+def MaximumHeight_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def PercentileHeight_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 5], actual[:, 5]))
-    # return math.sqrt(F.mse_loss(pred[:, 6], actual[:, 6]))
+def PercentileHeight_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def PlanarAreaIndex_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 6], actual[:, 6]))
-    # return math.sqrt(F.mse_loss(pred[:, 7], actual[:, 7]))
+def PlanarAreaIndex_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-# def RoughnessLength_RMSE(pred, actual):
-#     return math.sqrt(F.mse_loss(pred[:, 8], actual[:, 8]))
+def RoughnessLength_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
-def StandardDeviation_RMSE(pred, actual):
-    return math.sqrt(F.mse_loss(pred[:, 7], actual[:, 7]))
-    # return math.sqrt(F.mse_loss(pred[:, 9], actual[:, 9]))
+def StandardDeviation_RMSE(pred, actual, idx):
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
 metrics = [
-    AverageHeightArea_RMSE, 
-    AverageHeightBuilding_RMSE,
-    AverageHeightTotalArea_RMSE,
-    # Displacement_RMSE,
-    FrontalAreaIndex_RMSE,
-    MaximumHeight_RMSE,
-    PercentileHeight_RMSE,
-    PlanarAreaIndex_RMSE,
-    # RoughnessLength_RMSE,
-    StandardDeviation_RMSE
+    partial(AverageHeightArea_RMSE, idx= 0), 
+    partial(AverageHeightBuilding_RMSE, idx= 1),
+    partial(AverageHeightTotalArea_RMSE, idx= 2),
+    # partial(Displacement_RMSE, idx= ),
+    partial(FrontalAreaIndex_RMSE, idx= 3),
+    partial(MaximumHeight_RMSE, idx= 4),
+    partial(PercentileHeight_RMSE, idx= 5),
+    partial(PlanarAreaIndex_RMSE, idx= 6),
+    # partial(RoughnessLength_RMSE, idx= ),
+    partial(StandardDeviation_RMSE, idx= 7),
 ]
 
-def main():
-# Prepare datasets
 
-    with open("data/ds_tokyo.pkl", "rb") as f:
-        ds_tokyo = pickle.load(f)
+from torch.cuda.amp import GradScaler
+# Optimizers specified in the torch.optim package
+model.train()
+model.cuda()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+# Creates a GradScaler once at the beginning of training.
+scaler = GradScaler()
+def train_one_epoch(epoch_index, tb_writer):
+    running_loss = 0.
+    last_loss = 0.
 
-    with open("data/ds_osaka.pkl", "rb") as f:
-        ds_osaka = pickle.load(f)
+    # Here, we use enumerate(training_loader) instead of
+    # iter(training_loader) so that we can track the batch
+    # index and do some intra-epoch reporting
+    for i, data in enumerate(tqdm.tqdm(dl.train, desc= f"Epoch: {epoch_index + 1}", dynamic_ncols= True)):
+        # Every data instance is an input + label pair
+        inputs, labels = data
 
-    with open("data/ds_tokyo_distinct.pkl", "rb") as f:
-        ds_tokyo_distinct = pickle.load(f)
+        # Zero your gradients for every batch!
+        optimizer.zero_grad()
 
-    # Create dataloader based on arg and batchsize
-    if args.dataset == "Toyko_Osaka":
-        dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= args.batchsize, device=torch.device('cuda'))
-    elif args.dataset == "Tokyo_Tokyo":
-        dl = DataLoaders().from_dsets(*torch.utils.data.random_split(ds_tokyo_distinct, [0.8, 0.2]), bs= args.batchsize, device=torch.device('cuda'))
-    # Not going to vary for now since both are trained on tokyo
-    channel_max = ds_tokyo.channel_max
-    UMP_max = ds_tokyo.UMP_max
+        with torch.autocast(device_type= "cuda", dtype= torch.float16):
+            # Make predictions for this batch
+            outputs = model(inputs)
 
+            # Compute the loss and its gradients
+            loss = mse_weighted(outputs, labels, dl.train_ds.UMP_max)
 
-    # Instantiate model
+        # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
+        # Backward passes under autocast are not recommended.
+        # Backward ops run in the same dtype autocast chose for corresponding forward ops.
+        scaler.scale(loss).backward()
+        # loss.backward()
 
-    # Load weights from IM2ELEVATION and delete unnecessary layers
-    checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
-    to_delete = []
-    for layer in checkpoint["state_dict"].keys():
-        if any([word in layer.upper() for word in ["HARM", "R.CONV4", "R.BN4", "R2"]]):
-            to_delete.append(layer)
-    for i in to_delete:
-        checkpoint["state_dict"].pop(i)
+        # Adjust learning weights
+        # scaler.step() first unscales the gradients of the optimizer's assigned params.
+        # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
+        # otherwise, optimizer.step() is skipped.
+        scaler.step(optimizer)
+        # optimizer.step()
 
-    # Load Weights
-    ssl._create_default_https_context = ssl._create_unverified_context
-    original_model = senet.senet154()
-    Encoder = modules.E_senet(original_model, channel_max) # For new ds
+        # Updates the scale for next iteration.
+        scaler.update()
 
-    ## 3ch, 12ch_light, 12ch_mod, 12ch_full
-    ### 3ch
-    # Gonna assume that input dataloaders are all 12 channels
-    if args.model == "3ch":
-        model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], slice_input= True)
-    ### 12ch_light
-    elif args.model == "12ch_light":
-        model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-    elif args.model == "12ch_mod":
-        Encoder.channels = list(range(12))
-        model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-        # Modify weights
-        conv1 = next(next(next(next(model.children()).children()).children()).children())
-        in_chans = 12
-        conv1_weight = conv1.weight.float()
-        conv1_type = conv1_weight.dtype
-        repeat = int(math.ceil(in_chans / 3))
-        conv1_weight = conv1_weight.repeat(1, repeat, 1, 1)[:, :in_chans, :, :]
-        conv1_weight *= (3 / float(in_chans))
-        conv1_weight = conv1_weight.to(conv1_type)
-        checkpoint["state_dict"]["E.base.0.conv1.weight"] = conv1_weight
-        # Modify channel size
-        old_weight = conv1.weight.data
-        new_weight = torch.zeros((64, 12, 3, 3))
-        new_weight[:, :old_weight.shape[1], :, :] = old_weight
-        conv1.weight.data = new_weight
-    elif args.model == "12ch_full":
-        model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-    else:
-        print(f"Model {args.model} does not exist, please choose from [3ch, 12ch_light, 12ch_mod, 12ch_full]")
-        return
+        # Gather data and report
+        running_loss += loss.detach().item()
+        last_loss = running_loss / (i + 1) # loss per batch (avg loss)
+        tb_x = epoch_index * len(dl[0]) + i + 1
+        tb_writer.add_scalar('Loss/train', last_loss, tb_x)
+
+        tqdm.tqdm.write(f"Running Loss: {last_loss}", end= "\r")
+
+    # print(f'Epoch {} loss: {}')
+    return last_loss
+
+# PyTorch TensorBoard support
+# Initializing in a separate cell so we can easily add more epochs to the same run
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+writer = SummaryWriter('runs/sentinel_{}'.format(timestamp))
+epoch_number = 0
+
+EPOCHS = args.epoch
+
+best_vloss = 1_000_000.
+
+for epoch in range(EPOCHS):
+    print('EPOCH {}:'.format(epoch_number + 1))
+
+    # Make sure gradient tracking is on, and do a pass over the data
+    # model.train(True)
+    # model.cuda()
+    avg_loss = train_one_epoch(epoch_number, writer)
+
+    # We don't need gradients on to do reporting
+    model.train(False)
+
+    # Initialise loss and metrics
+    running_vloss = 0.0
+    val_metrics = {}
+    for i, metric in enumerate(metrics):
+        val_metrics[metric.func.__name__] = 0
+
+    with torch.no_grad():
+        for i, vdata in enumerate(dl[1]):
+            vinputs, vlabels = vdata
+            voutputs = model(vinputs)
+            # Calcualte the loss
+            vloss = mse_weighted(voutputs, vlabels, dl.train_ds.UMP_max)
+            running_vloss += vloss
+
+            # Calculate the metrics
+            for i, metric in enumerate(metrics):
+                val_metrics[metric.func.__name__] += metric(voutputs, vlabels) / len(dl[1])
+
         
-    # Load weights
-    model.load_state_dict(checkpoint["state_dict"], strict=False)
 
-    # Clear memory
-    del checkpoint
-    gc.collect()
-    torch.cuda.empty_cache()
+    avg_vloss = running_vloss / (i + 1)
+    print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
 
-    # Define loss function based on the dataset (since Y changes)
-    loss_func = partial(mse_weighted, UMP_max= UMP_max)
+    # Log the running loss averaged per batch
+    # for both training and validation
+    writer.add_scalars('Training vs. Validation Loss',
+                    { 'Training' : avg_loss, 'Validation' : avg_vloss },
+                    epoch_number + 1)
+    writer.flush()
 
-    learn = Learner(dl, model, loss_func= loss_func, metrics= metrics, cbs=[MixedPrecision, FP16TestCallback])
-
-    learn.fine_tune(args.epoch, 0.001, freeze_epochs= 1, cbs= [ShowGraphCallback()])
-
-    dt = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    name = f"{args.model}_{args.dataset}_{args.batchsize}_{args.epoch}"
-
-    # Save the weights
-    torch.save(model.state_dict(), f"{args.root}/{name}.pth")
-
-    # Save the results
-    with open(f"{args.root}/recorder_{name}.pkl", "wb") as f:
-        pickle.dump(learn.recorder, f)
+    # Log the metrics as well
+    writer.add_scalars('Validation Metrics',
+                    val_metrics,
+                    epoch_number + 1)
+    writer.flush()
 
 
-if __name__ == "__main__":
-    main()
+    # Track best performance, and save the model's state
+    if avg_vloss < best_vloss:
+        best_vloss = avg_vloss
+        model_path = 'overnight_results/model_{}_{}'.format(timestamp, epoch_number)
+        torch.save(model.state_dict(), model_path)
+
+    epoch_number += 1
