@@ -45,32 +45,37 @@ parser = argparse.ArgumentParser()
 
 # parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
 # parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
-parser.add_argument("--epoch", type= int, default= 10)
+parser.add_argument("--epoch", type= int, default= 50)
 parser.add_argument("--batchsize", type= int, default= 64)
+parser.add_argument("--name", type= str, default= "default", help= "Name of the model/setup")
+parser.add_argument("--extend", type= int, default= 5, help= "Extends the max epoch by the value if the current best is the last epoch")
+parser.add_argument("--patience", type= int, default= 5, help= "Stops the training when vloss increases for <patience> consecutive times, min=0")
 # parser.add_argument("--root", type= str, default= "overnight_results", help= "Place to store results, ie. Weights and plots")
 
 args = parser.parse_args()
+print(args)
 
-
+####### Change the sigmoid_idx accordingly #######
 
 # Constants
 CHECKPT_PATH = "pretrained_model/im2elevation/Block0_skip_model_110.pth.tar"
 UMP = [
-        "AverageHeightArea", 
-        "AverageHeightBuilding", 
-        "AverageHeightTotalArea", 
+        # "AverageHeightArea", 
+        # "AverageHeightBuilding", 
+        # "AverageHeightTotalArea", 
         # "Displacement", 
         "FrontalAreaIndex",
-        "MaximumHeight",
-        "PercentileHeight",
-        "PlanarAreaIndex",
+        # "MaximumHeight",
+        # "PercentileHeight",
+        # "PlanarAreaIndex",
         # "RoughnessLength",
-        "StandardDeviation"]
+        # "StandardDeviation"
+        ]
 
-with open("data/ds_tokyo_2.pkl", "rb") as f:
+with open("data/ds_tokyo_3.pkl", "rb") as f:
     ds_tokyo = pickle.load(f)
 
-with open("data/ds_osaka_2.pkl", "rb") as f:
+with open("data/ds_osaka_3.pkl", "rb") as f:
     ds_osaka = pickle.load(f)
 
 ds_tokyo.set_UMPs(UMP)
@@ -88,7 +93,7 @@ for layer in checkpoint["state_dict"].keys():
     if any([word in layer.upper() for word in ["HARM", "R.CONV4", "R.BN4", "R2"]]):
     # if any([word in layer.upper() for word in ["HARM", "R.CONV3", "R.BN3", "R.CONV4", "R.BN4"]]):
         to_delete.append(layer)
-print(to_delete)
+# print(to_delete)
 
 for i in to_delete:
     # checkpoint.pop(i)
@@ -104,7 +109,7 @@ Encoder = modules.E_senet(original_model, dl.train_ds.channel_max) # For new ds
 # model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
 
 # model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= 8, sigmoid_idx= [3, 6])
+model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [0])
 
 # Load weights
 model.load_state_dict(checkpoint["state_dict"], strict=False)
@@ -171,16 +176,16 @@ def StandardDeviation_RMSE(pred, actual, idx):
     return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
 
 metrics = [
-    partial(AverageHeightArea_RMSE, idx= 0), 
-    partial(AverageHeightBuilding_RMSE, idx= 1),
-    partial(AverageHeightTotalArea_RMSE, idx= 2),
-    # partial(Displacement_RMSE, idx= ),
-    partial(FrontalAreaIndex_RMSE, idx= 3),
-    partial(MaximumHeight_RMSE, idx= 4),
-    partial(PercentileHeight_RMSE, idx= 5),
-    partial(PlanarAreaIndex_RMSE, idx= 6),
-    # partial(RoughnessLength_RMSE, idx= ),
-    partial(StandardDeviation_RMSE, idx= 7),
+    # partial(AverageHeightArea_RMSE, idx= 0), 
+    # partial(AverageHeightBuilding_RMSE, idx= 1),
+    # partial(AverageHeightTotalArea_RMSE, idx= 0),
+    # partial(Displacement_RMSE, idx= 0),
+    partial(FrontalAreaIndex_RMSE, idx= 0),
+    # partial(MaximumHeight_RMSE, idx= 4),
+    # partial(PercentileHeight_RMSE, idx= 5),
+    # partial(PlanarAreaIndex_RMSE, idx= 2),
+    # partial(RoughnessLength_RMSE, idx= 1),
+    # partial(StandardDeviation_RMSE, idx= 3),
 ]
 
 
@@ -241,15 +246,21 @@ def train_one_epoch(epoch_index, tb_writer):
 
 # PyTorch TensorBoard support
 # Initializing in a separate cell so we can easily add more epochs to the same run
+name = args.name
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-writer = SummaryWriter('runs/sentinel_{}'.format(timestamp))
+writer = SummaryWriter('runs/sentinel_{}_{}'.format(name, timestamp))
 epoch_number = 0
 
 EPOCHS = args.epoch
 
 best_vloss = 1_000_000.
 
-for epoch in range(EPOCHS):
+# Early Stopping
+prev_vloss = 1_000_000.
+patience = 0
+
+
+while epoch_number < EPOCHS:
     print('EPOCH {}:'.format(epoch_number + 1))
 
     # Make sure gradient tracking is on, and do a pass over the data
@@ -296,15 +307,31 @@ for epoch in range(EPOCHS):
                     epoch_number + 1)
     writer.flush()
 
+    print(val_metrics)
+
 
     # Track best performance, and save the model's state
     if avg_vloss < best_vloss:
         best_vloss = avg_vloss
-        model_path = 'overnight_results/model_{}_{}'.format(timestamp, epoch_number)
-        torch.save(model.state_dict(), model_path)
+        # Save this to var instead of writing directly
+        best_model = model.state_dict()
+        best_epoch = epoch_number
 
-<<<<<<< Updated upstream
+        if epoch_number == EPOCHS - 1:
+            EPOCHS += args.extend
+
+    # If loss increase or plateau
+    if avg_vloss > prev_vloss or abs(avg_loss - prev_vloss) < 0.01 * abs(prev_vloss):
+        patience += 1
+        if patience > args.patience:
+            print(f"Early Stopping at Epoch {epoch_number} with {patience} consecutive vloss increase or plateau")
+            break
+    else:
+        patience = 0
+    prev_vloss = avg_vloss
+
     epoch_number += 1
-=======
-    epoch_number += 1
->>>>>>> Stashed changes
+
+# Save model
+model_path = 'overnight_results/model_{}_{}_{}'.format(name, timestamp, best_epoch)
+torch.save(best_model, model_path)

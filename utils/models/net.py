@@ -52,7 +52,7 @@ class model(nn.Module):
     """
     Final model that aims to put a head to the IM2ELEVATION model to for UMP prediction
     """
-    def __init__(self, Encoder, num_features, block_channel, slice_input= False):
+    def __init__(self, Encoder, num_features, block_channel):
         """
         # Parameters:\n
         - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
@@ -68,16 +68,11 @@ class model(nn.Module):
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R1()
         self.R2 = modules.R2()
-        self.slice_input = slice_input
 
 
     def forward(self, x):
-        
-        # For use in > 3 channel images without proper dataset preprocessing
-        if self.slice_input:
-            x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 1:4])
-        else:
-            x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x)
+
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x)
 
         x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
 
@@ -217,7 +212,7 @@ class model_n12_light(nn.Module):
     """
     Light version, which uses the merger in the beginning to merge the channels, without duplicating the Encoder
     """
-    def __init__(self, Encoder, num_features, block_channel, n_out= 8, sigmoid_i= [3, 6]):
+    def __init__(self, Encoder, num_features, block_channel, n_out, sigmoid_idx, cut_R2= False):
         """
         # Parameters:\n
         - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
@@ -228,6 +223,10 @@ class model_n12_light(nn.Module):
 
         super(model_n12_light, self).__init__()
         
+        # Set the number of out channels
+        self.n_out = n_out
+        # Whether to cut R2 and just return feature maps
+        self.cut_R2 = cut_R2
         # Mergers for the different channels
         self.M0 = nn.Conv2d(12, 3, 1, 1)
 
@@ -241,16 +240,13 @@ class model_n12_light(nn.Module):
         self.D2 = modules.D2(num_features = num_features)
         self.MFF = modules.MFF(block_channel)
         self.R = modules.R1()
-        self.R2 = modules.R2(n_out= n_out, sigmoid_i= sigmoid_i)
+        self.R2 = modules.R2(n_out = n_out, sigmoid_idx= sigmoid_idx)
 
 
     def forward(self, x):
         
         # Merge the channels
         x = self.M0(x)
-
-        # ReLU as activation function
-        x = F.relu(x)
 
         # First Encoder (Channels 1-3)
         x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 0:3])
@@ -268,7 +264,11 @@ class model_n12_light(nn.Module):
         x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4, [x_decoder.size(2), x_decoder.size(3)]) 
 
         x_R1 = self.R(torch.cat((x_decoder, x_mff), 1))
-
+        
+        # If cut, just return the maps
+        if self.cut_R2:
+            return x_R1
+            
         out = self.R2(x_R1) 
 
         try:

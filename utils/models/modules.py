@@ -140,16 +140,15 @@ class E_senet(nn.Module):
         #summary(self.base, input_size=(3, 440, 440))
 
         # Normalise x first
-        x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
         # x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
-        # x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
+        x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
 
-        x_normed = torch.div(x, torch.tensor([self.channel_max[i] for i in self.channels], device= "cuda").unsqueeze(0).unsqueeze(2).unsqueeze(2))
-
+        # Old way of norming
         # for channel_count in range(x.shape[1]):
         #     x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
-            # x_normed[:, channel_count] = x_normed[:, channel_count] / self.channel_max[self.channels[channel_count]] * 255
         
+        x_normed = torch.div(x, torch.tensor([self.channel_max[i] for i in self.channels], device= "cuda").unsqueeze(0).unsqueeze(2).unsqueeze(2)) * 255
+
         # In place clipping
         x_normed = torch.clip(x_normed, 0, 255)
 
@@ -500,17 +499,15 @@ class R2(nn.Module):
 
 
     """
-    def __init__(self, n_out= 8, sigmoid_i= [3, 6]):
+    def __init__(self, n_out, sigmoid_idx):
 
         super(R2, self).__init__()
-
+        # Number of outout channels
+        self.n_out = n_out
+        self.sigmoid_idx = sigmoid_idx
         # UMP specific layers (based on intuition)
         # self.softmax0 = nn.Softmax2d()
-        self.sigmoid0 = nn.Sigmoid()
-        self.sigmoid1 = nn.Sigmoid()
-        self.sigmoid2 = nn.Sigmoid()
-
-        self.sigmoid_i = sigmoid_i
+        self.sigmoid = nn.Sigmoid()
 
         # self.conv3 = nn.Conv2d(432, 288, kernel_size=3, padding=1, stride=1)
         # self.bn3 = nn.BatchNorm2d(288)
@@ -527,7 +524,7 @@ class R2(nn.Module):
         # self.conv6 = nn.Conv2d(72, 8, kernel_size= 3, stride= 2)
 
         # Head
-        self.head = create_head(216, n_out)
+        self.head = create_head(216, self.n_out)
         # self.head = create_head(216, 10)
         # self.aapool = nn.AdaptiveAvgPool2d(1)
         # self.ampool = nn.AdaptiveMaxPool2d(1)
@@ -546,7 +543,7 @@ class R2(nn.Module):
         # 144 -> 432
         # x2_1 = self.maxpool0(x2) # 144, 46x46
         # x2_2 = self.softmax0(x2) # 144
-        x2_2 = self.sigmoid0(x2) # 144
+        x2_2 = self.sigmoid(x2) # 144
         x2_3 = torch.cat([x2, x2_2], dim= 1) # 144
         x2_std = x2.std(dim= (2, 3)) # 144 values
         x2_std = x2_std.unsqueeze(2).unsqueeze(2).expand(-1, -1, x2_3.shape[2], x2_3.shape[3])
@@ -584,11 +581,11 @@ class R2(nn.Module):
         # 8 -> 8
         x7 = self.head(x2_3)
 
-        # Apply sigmoid to the frontal and planar indexes
-        x7[:, self.sigmoid_i[0]] = self.sigmoid1(x7[:, self.sigmoid_i[0]])
-        x7[:, self.sigmoid_i[1]] = self.sigmoid2(x7[:, self.sigmoid_i[1]])
+        for idx in self.sigmoid_idx:
+            x7[:, idx] = self.sigmoid(x7[:, idx])
+
         x7 = F.relu(x7)
-        
+
         return x7
 
 class R2_1(nn.Module):
