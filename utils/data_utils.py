@@ -1,6 +1,8 @@
 """
 The modules provides for utility functions with respect to data from the prepared datasets
 """
+# Documentation
+from typing import Callable, List
 
 # Import libraries
 import glob
@@ -15,6 +17,7 @@ from torch.utils.data import Dataset
 
 from osgeo import gdal
 from scipy.ndimage import rotate
+import geopandas as gpd
 
 UMP = ["AverageHeightArea", 
             "AverageHeightBuilding", 
@@ -101,15 +104,25 @@ def plotUMP(gdf, band_names= UMP, n_col= 2, scale= None):
 class UMPDataset(Dataset):
     """Urban Morphological Parameters - Sentinel Dataset"""
 
-    def __init__(self, ump_df, dir_path, tgt_ump, file_ext= ".tiff", transform= None, return_coords= False):
+    def __init__(self, 
+    ump_df:gpd.GeoDataFrame, 
+    dir_path:str, 
+    tgt_ump:List[str], 
+    file_ext:str= ".tiff", 
+    transform:Callable= None, 
+    return_coords:bool= False):
         """
         # Parameters:
-            - ump_df: DataFrame containing the geometry of each cell with its corresponding UMPs.
-            - dir_path: Directory in which all tiff files will be matched with it's corresponding cells in ump_df.
+            - `GeoDataFrame` ump_df: DataFrame containing the geometry of each cell with its corresponding UMPs.
+            - `str` dir_path: Directory in which all tiff files will be matched with it's corresponding cells in ump_df.
                 - No trailing slashes for dir. eg. "data/osaka"
                 - Naming convention for files: Sentinel_{'_'.join(map(str, map(int, cell.bounds)))}.tiff for cell in ump_df["geometry"]
-            - tgt_ump: List of UMPs that should correspond to the column names of ump_df
-            - file_ext: Extension of the file eg. .tiff / .tif
+            - `List[str]` tgt_ump: List of UMPs that should correspond to the column names of ump_df
+            - `str` file_ext: Extension of the image file to search for eg. .tiff
+            - `Callable` transform: A function that takes in and transforms the output before actually outputting it
+            - `bool` return_coords: A boolean to dictate whether the output should contain a third element - the bounds of the cell
+        # Returns: 
+            - [Image array, List of UMPs, (optional, see return_coords) List of bounding coordinates for cell]
         """
         self.tgt_ump = tgt_ump
         self.ump_df = ump_df

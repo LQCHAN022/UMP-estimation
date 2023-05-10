@@ -2,6 +2,7 @@
 This is a collection of functions and classes that are used in the processing of CityGML data, 
 from initial loading in to the final output as Urban Morphological Parameters (UMPs)
 """
+from typing import Union
 import os.path
 import utils.istarmap as istarmap # Patches mp with this to enable tqdm
 from multiprocessing import Pool
@@ -99,13 +100,15 @@ def gml_to_feather(in_path, out_path, mode= None, log_name= "gml_convert", src_c
     Takes in a gml file and outputs it as a feather file\n
     W/R with feather files is much faster and takes up much less space than using shp files\n
     # Parameters:\n
-    - in_path: The path for the gml file\n
-    - out_path: The output path for the shape file, must end with a .shp\n
-    - mode: 
+    - `str` in_path: The path for the gml file\n
+    - `str` out_path: The output path for the shape file, must end with a .feather\n
+    - `str` log_name: The name of the log file that records failed gml files, stored in logs/ folder. 
+    - `str` mode: 
         - 'o' = overwrites any file at output path, \n
         - None = raises error if file already exists\n
-    - src_crs: Source projection\n
-    - tgt_crs: Target projection\n
+    - `str` src_crs: Source projection\n
+    - `str` tgt_crs: Target projection\n
+    - `bool` force_manual: Whether to manually extract the data from the gml as a xml, use if original method doesn't work well
     """
     # Extracts features
     with fiona.open(in_path, 'r') as src:
@@ -170,8 +173,29 @@ def gml_to_feather(in_path, out_path, mode= None, log_name= "gml_convert", src_c
     
     return 0
 
-def batch_gml_to_feather(in_dir, out_path, n_processes= 12, log_name= None, mode= None, src_crs= "EPSG:6668", tgt_crs= "EPSG:3857", force_manual= False):
-
+def batch_gml_to_feather(
+    in_dir: str, 
+    out_path: str, 
+    n_processes:int= 12, 
+    log_name:Union[None, str]= None, 
+    mode:str= None, 
+    src_crs:str= "EPSG:6668", 
+    tgt_crs:str= "EPSG:3857", 
+    force_manual:bool= False):
+    """
+    Transforms and merges all gml files in a specified directory and writes it to a specified feather file.
+    # Parameters:\n
+    - `str` in_path: The path for the gml file\n
+    - `str` out_path: The output path for the shape file, must end with a .feather\n
+    - `int` n_processes: The number of workers to use, since each individual .gml file can have its own process
+    - `str` log_name: The name of the log file that records failed gml files, stored in logs/ folder. 
+    - `str` mode: 
+        - 'o' = overwrites any file at output path, \n
+        - None = raises error if file already exists\n
+    - `str` src_crs: Source projection\n
+    - `str` tgt_crs: Target projection\n
+    - `bool` force_manual: Whether to manually extract the data from the gml as a xml, use if original method doesn't work well
+    """
     # Get all the paths of the gml files
     in_paths = glob(f"{in_dir}/*.gml")
     print("Total input files:", len(in_paths))
@@ -207,7 +231,9 @@ def batch_gml_to_feather(in_dir, out_path, n_processes= 12, log_name= None, mode
 ### Divide into Grids ###
 
 class ConcaveHull:
-    
+    """
+    Helper class to generate a concave hull around a set of points
+    """
     def __init__(self):
         self.triangles = {}
         self.crs = {}
@@ -427,13 +453,14 @@ def calculateFrontalArea(df_row):
             geom = geom.convex_hull
     return (max(geom.exterior.coords.xy[0]) - min(geom.exterior.coords.xy[0])) * df_row["height"]
 
-def calculateUMP(shp_df, clip_poly, percentile= 98):
+def calculateUMP(shp_df:gpd.GeoDataFrame, clip_poly:shapely.Polygon, percentile:int= 98):
     """
+    Calculates the UMP of cell given a GeoDataFrame with building footprint (geometry) and height (height)
+
     # Parameters\n
-    shp_df: A geopandas dataframe with columns "height" and "geometry"\n
-    min_x, min_y, max_x, max_y: The minimum/maximum x/y coordinates respectively of the area to calculate the UMP for\n
+    `GeoDataFrame` shp_df: A geopandas dataframe with columns "height" and "geometry"\n
+    `Polygon` clip_poly: The Polygon of the cell in question, will be used to clip and filter data from shp_df
     percentile: <int, [0, 100]> The percentile for calculation of the PercentileHeight\n
-    verbose: <bool> To print the results of the UMP calculation\n
     
     # Returns\n
     A dictionary with the keys below:\n

@@ -37,14 +37,14 @@ def getPixel(geo_transform, x,  y):
     # For other datasets/projects would be good to re-evaluate
     return math.ceil(row_index), math.ceil(col_index)
 
-def convertCoords(x, y, src, target):
+def convertCoords(x:float, y:float, src:str, target:str):
     """
     Converts the coordinates from the source projection to the target projection\n
     # Parameters \n
-    x: Usually the latitude or the x value\n
-    y: Usually the longitude or the y value\n
-    src: The source projection eg. "epsg:3857"\n
-    target: The target projection eg. "epsg:4326"\n
+    `float` x: Usually the latitude or the x value\n
+    `float` y: Usually the longitude or the y value\n
+    `str` src: The source projection eg. "epsg:3857"\n
+    `str` target: The target projection eg. "epsg:4326"\n
     """
     transformer = pyproj.Transformer.from_crs(src, target)
     return transformer.transform(x, y)

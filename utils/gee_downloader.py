@@ -24,7 +24,15 @@ except Exception:
     ee.Initialize()
 
 class BaseDownloader(ABC):
-    def __init__(self, root, dataset_name= "Sentinel"):
+    """
+    Helper class used for downloading images from GEE
+    """
+    def __init__(self, root:str, dataset_name:str= "Sentinel"):
+        """
+        # Parameters
+        - `str` root: The path to the folder to store the images
+        - `str` dataset_name: The name of the dataset for identification/naming purposes of the files
+        """
         self.set_root(root)
         self.dataset_name = dataset_name
 
