@@ -186,6 +186,6 @@ pretrained_model/
 trained_models/
 
 test*
-models/
+./models/
 runs/
 overnight_results/

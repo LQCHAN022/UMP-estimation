@@ -5,26 +5,31 @@ os.environ['USE_PYGEOS'] = '0'
 import sys
 import argparse
 from datetime import datetime
-import pandas as pd
-import numpy as np
+# import pandas as pd
+# import numpy as np
 import pickle
-import sklearn
-import seaborn as sns
+# import sklearn
+# import seaborn as sns
 import matplotlib.pyplot as plt
 import gc
 import ssl
 import tqdm
 import argparse
 
-from osgeo import gdal
-import geopandas as gpd
-import shapely
-from scipy.ndimage import rotate
+# from osgeo import gdal
+# import geopandas as gpd
+# import shapely
+# from scipy.ndimage import rotate
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
+from torch import nn, optim
 from torchvision import transforms, utils
+
+import torch_lr_finder
+
 from sklearn.preprocessing import Normalizer
+
 
 # FastAI
 from fastai.vision.all import *
@@ -46,7 +51,7 @@ parser = argparse.ArgumentParser()
 # parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
 # parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
 parser.add_argument("--epoch", type= int, default= 50)
-parser.add_argument("--batchsize", type= int, default= 64)
+parser.add_argument("--batchsize", type= int, default= 128)
 parser.add_argument("--name", type= str, default= "default", help= "Name of the model/setup")
 parser.add_argument("--extend", type= int, default= 5, help= "Extends the max epoch by the value if the current best is the last epoch")
 parser.add_argument("--patience", type= int, default= 5, help= "Stops the training when vloss increases for <patience> consecutive times, min=0")
@@ -62,26 +67,49 @@ CHECKPT_PATH = "pretrained_model/im2elevation/Block0_skip_model_110.pth.tar"
 UMP = [
         # "AverageHeightArea", 
         # "AverageHeightBuilding", 
-        # "AverageHeightTotalArea", 
-        # "Displacement", 
+        "AverageHeightTotalArea", 
+        "Displacement", 
         "FrontalAreaIndex",
         # "MaximumHeight",
         # "PercentileHeight",
-        # "PlanarAreaIndex",
-        # "RoughnessLength",
-        # "StandardDeviation"
+        "PlanarAreaIndex",
+        "RoughnessLength",
+        "StandardDeviation"
         ]
 
-with open("data/ds_tokyo_3.pkl", "rb") as f:
+with open("data/ds_tokyo_4.pkl", "rb") as f:
     ds_tokyo = pickle.load(f)
 
-with open("data/ds_osaka_3.pkl", "rb") as f:
+with open("data/ds_osaka_4.pkl", "rb") as f:
     ds_osaka = pickle.load(f)
+    
+# with open("data/ds_ny_4.pkl", "rb") as f:
+#     ds_ny = pickle.load(f)
 
 ds_tokyo.set_UMPs(UMP)
 ds_osaka.set_UMPs(UMP)
+# ds_ny.set_UMPs(UMP)
+
+ds_osaka.UMP_max = ds_tokyo.UMP_max
+ds_osaka.channel_max = ds_tokyo.channel_max
+
+# If using combined
+# if True:
+#     UMP_max = [max(i) for i in zip(ds_ny.UMP_max, ds_tokyo.UMP_max)]
+#     channel_max = [max(i) for i in zip(ds_ny.channel_max, ds_tokyo.channel_max)]
+#     ds_osaka.UMP_max = UMP_max
+#     ds_osaka.channel_max = channel_max
+#     ds_tokyo.UMP_max = UMP_max
+#     ds_tokyo.channel_max = channel_max
+#     ds_ny.UMP_max = UMP_max
+#     ds_ny.channel_max = channel_max
+
+    # ds_tokyo = torch.utils.data.ConcatDataset([ds_tokyo, ds_ny])
+    # print(ds_tokyo[0][1])
+    # raise
 
 dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= args.batchsize, device=torch.device('cuda'))
+# dl_ny = DataLoader(ds_ny, bs= args.batchsize, device= torch.device('cuda'))
 
 # Load weights from IM2ELEVATION and delete unnecessary layers
 checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
@@ -104,12 +132,19 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 original_model = senet.senet154()
 
-Encoder = modules.E_senet(original_model, dl.train_ds.channel_max) # For new ds
+# Encoder = modules.E_senet(original_model, dl.train_ds.channel_max) # For new ds
+Encoder = modules.E_normalised(original_model) # For new ds
 # Encoder = modules.E_senet(original_model, old_ds_channel_max) # For old ds
 # model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
 
 # model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [0])
+# model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [])
+model = net.model_n12_light_normalised(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [])
+
+# For multi-GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = nn.DataParallel(model)
+model.to(device)
 
 # Load weights
 model.load_state_dict(checkpoint["state_dict"], strict=False)
@@ -119,18 +154,18 @@ del checkpoint
 gc.collect()
 torch.cuda.empty_cache()
 
-def mse_weighted(pred, actual, UMP_max= dl.train_ds.UMP_max):
-    """
-    Weighted loss function that normalises the predictions based on the parameters used to normalise the actual during training
-    """
-    loss = tensor(0).float()
-    loss.requires_grad_(True)
-    for ump in range(pred.shape[1]):
-        # loss = torch.add(loss, F.mse_loss(pred[:, ump], actual[:, ump]))
-        loss = torch.add(loss, torch.div(F.mse_loss(pred[:, ump], actual[:, ump]), UMP_max[ump]**2))
-    if loss.isnan().sum() > 1:
-        raise ValueError([pred, actual])
-    return loss.float()
+# def mse_weighted(pred, actual, UMP_max= dl.train_ds.UMP_max):
+#     """
+#     Weighted loss function that normalises the predictions based on the parameters used to normalise the actual during training
+#     """
+#     loss = tensor(0).float()
+#     loss.requires_grad_(True)
+#     for ump in range(pred.shape[1]):
+#         # loss = torch.add(loss, F.mse_loss(pred[:, ump], actual[:, ump]))
+#         loss = torch.add(loss, torch.div(F.mse_loss(pred[:, ump], actual[:, ump]), UMP_max[ump]**2))
+#     if loss.isnan().sum() > 1:
+#         raise ValueError([pred, actual])
+#     return loss.float()
 
 # List of metrics
 """
@@ -146,56 +181,89 @@ def mse_weighted(pred, actual, UMP_max= dl.train_ds.UMP_max):
 "StandardDeviation"
 """
 def AverageHeightArea_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    # return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def AverageHeightBuilding_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def AverageHeightTotalArea_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def Displacement_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def FrontalAreaIndex_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def MaximumHeight_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def PercentileHeight_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def PlanarAreaIndex_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def RoughnessLength_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
 def StandardDeviation_RMSE(pred, actual, idx):
-    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx]))
+    return math.sqrt(F.mse_loss(pred[:, idx], actual[:, idx])) * dl.train_ds.UMP_max[idx]
 
-metrics = [
-    # partial(AverageHeightArea_RMSE, idx= 0), 
-    # partial(AverageHeightBuilding_RMSE, idx= 1),
-    # partial(AverageHeightTotalArea_RMSE, idx= 0),
-    # partial(Displacement_RMSE, idx= 0),
-    partial(FrontalAreaIndex_RMSE, idx= 0),
-    # partial(MaximumHeight_RMSE, idx= 4),
-    # partial(PercentileHeight_RMSE, idx= 5),
-    # partial(PlanarAreaIndex_RMSE, idx= 2),
-    # partial(RoughnessLength_RMSE, idx= 1),
-    # partial(StandardDeviation_RMSE, idx= 3),
+# metrics = [
+#     # partial(AverageHeightArea_RMSE, idx= 0), 
+#     # partial(AverageHeightBuilding_RMSE, idx= 1),
+#     partial(AverageHeightTotalArea_RMSE, idx= 0),
+#     # partial(Displacement_RMSE, idx= 0),
+#     partial(FrontalAreaIndex_RMSE, idx= 1),
+#     # partial(MaximumHeight_RMSE, idx= 4),
+#     # partial(PercentileHeight_RMSE, idx= 5),
+#     partial(PlanarAreaIndex_RMSE, idx= 2),
+#     # partial(RoughnessLength_RMSE, idx= 1),
+#     partial(StandardDeviation_RMSE, idx= 3),
+# ]
+
+# Partial is used to dictate which of the results should it 
+metrics_raw = [
+    AverageHeightArea_RMSE,
+    AverageHeightBuilding_RMSE,
+    AverageHeightTotalArea_RMSE,
+    Displacement_RMSE,
+    FrontalAreaIndex_RMSE,
+    MaximumHeight_RMSE,
+    PercentileHeight_RMSE,
+    PlanarAreaIndex_RMSE,
+    RoughnessLength_RMSE,
+    StandardDeviation_RMSE,
 ]
 
+metrics = []
+# Choose which umps you want in the metrics
+# for i, ump in enumerate([2, 4, 7, 9]):
+# for i, ump in enumerate([3, 8]):
+for i, ump in enumerate([2, 3, 4, 7, 8, 9]):
+    metrics.append(partial(metrics_raw[ump], idx= i))
 
-from torch.cuda.amp import GradScaler
+# from torch.cuda.amp import GradScaler
 # Optimizers specified in the torch.optim package
 model.train()
 model.cuda()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+# optimizer = torch.optim.AdamW(model.parameters())
+# optimizer = torch.optim.SGD(model.parameters())
 # Creates a GradScaler once at the beginning of training.
-scaler = GradScaler()
+# scaler = GradScaler()
+
+# Finding the learning rate for cyclical
+# lr_finder = torch_lr_finder.LRFinder(model, optimizer, mse_weighted, device)
+# lr_finder.range_test(dl.train, end_lr= 10, num_iter= 1000)
+# lr_finder.plot()
+# plt.savefig("LRvsLoss.png")
+# plt.close()
+EPOCHS = args.epoch
+# scheduler = optim.lr_scheduler.OneCycleLR(optimizer, 0.001, epochs=EPOCHS, steps_per_epoch=len(dl.train))
+
 def train_one_epoch(epoch_index, tb_writer):
     running_loss = 0.
     last_loss = 0.
@@ -203,6 +271,7 @@ def train_one_epoch(epoch_index, tb_writer):
     # Here, we use enumerate(training_loader) instead of
     # iter(training_loader) so that we can track the batch
     # index and do some intra-epoch reporting
+    # TOKYO
     for i, data in enumerate(tqdm.tqdm(dl.train, desc= f"Epoch: {epoch_index + 1}", dynamic_ncols= True)):
         # Every data instance is an input + label pair
         inputs, labels = data
@@ -210,29 +279,33 @@ def train_one_epoch(epoch_index, tb_writer):
         # Zero your gradients for every batch!
         optimizer.zero_grad()
 
-        with torch.autocast(device_type= "cuda", dtype= torch.float16):
+        # with torch.autocast(device_type= "cuda", dtype= torch.float16):
             # Make predictions for this batch
-            outputs = model(inputs)
+        inputs = inputs.to(torch.float)
+        outputs = model(inputs)
 
             # Compute the loss and its gradients
-            loss = mse_weighted(outputs, labels, dl.train_ds.UMP_max)
+        loss = F.mse_loss(outputs.float(), labels.float())
+        # loss = loss.to(torch.float)
+            # loss = mse_weighted(outputs, labels, dl.train_ds.UMP_max)
 
         # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
         # Backward passes under autocast are not recommended.
         # Backward ops run in the same dtype autocast chose for corresponding forward ops.
-        scaler.scale(loss).backward()
-        # loss.backward()
+        # scaler.scale(loss).backward()
+        loss.backward()
 
         # Adjust learning weights
         # scaler.step() first unscales the gradients of the optimizer's assigned params.
         # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
         # otherwise, optimizer.step() is skipped.
-        scaler.step(optimizer)
-        # optimizer.step()
+        # scaler.step(optimizer)
+        optimizer.step()
+        
+        # scheduler.step()
 
         # Updates the scale for next iteration.
-        scaler.update()
-
+        # scaler.update()
         # Gather data and report
         running_loss += loss.detach().item()
         last_loss = running_loss / (i + 1) # loss per batch (avg loss)
@@ -240,6 +313,23 @@ def train_one_epoch(epoch_index, tb_writer):
         tb_writer.add_scalar('Loss/train', last_loss, tb_x)
 
         tqdm.tqdm.write(f"Running Loss: {last_loss}", end= "\r")
+    # NY
+    # for i, data in enumerate(tqdm.tqdm(dl_ny, desc= f"Epoch (ny): {epoch_index + 1}", dynamic_ncols= True)):
+    #     inputs, labels = data
+    #     optimizer.zero_grad()
+    #     inputs = inputs.to(torch.float)
+    #     outputs = model(inputs)
+    #     loss = F.mse_loss(outputs.float(), labels.float())
+    #     loss.backward()
+    #     optimizer.step()
+        
+    #     # Gather data and report
+    #     running_loss += loss.detach().item()
+    #     last_loss = running_loss / (i + 1) # loss per batch (avg loss)
+    #     tb_x = epoch_index * (len(dl[0]) + len(ds_ny)) + i + 1 + len(dl[0])
+    #     tb_writer.add_scalar('Loss/train', last_loss, tb_x)
+
+    #     tqdm.tqdm.write(f"Running Loss: {last_loss}", end= "\r")
 
     # print(f'Epoch {} loss: {}')
     return last_loss
@@ -250,8 +340,7 @@ name = args.name
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 writer = SummaryWriter('runs/sentinel_{}_{}'.format(name, timestamp))
 epoch_number = 0
-
-EPOCHS = args.epoch
+print(f"Run saved as: {'runs/sentinel_{}_{}'.format(name, timestamp)}")
 
 best_vloss = 1_000_000.
 
@@ -278,11 +367,12 @@ while epoch_number < EPOCHS:
         val_metrics[metric.func.__name__] = 0
 
     with torch.no_grad():
-        for i, vdata in enumerate(dl[1]):
+        for i, vdata in tqdm.tqdm(enumerate(dl[1]), desc= f"Validation:", dynamic_ncols= True, total= len(dl[1])):
             vinputs, vlabels = vdata
-            voutputs = model(vinputs)
+            voutputs = model(vinputs.float())
             # Calcualte the loss
-            vloss = mse_weighted(voutputs, vlabels, dl.train_ds.UMP_max)
+            # vloss = mse_weighted(voutputs, vlabels, dl.train_ds.UMP_max)
+            vloss = F.mse_loss(voutputs.float(), vlabels.float())
             running_vloss += vloss
 
             # Calculate the metrics
@@ -333,5 +423,18 @@ while epoch_number < EPOCHS:
     epoch_number += 1
 
 # Save model
-model_path = 'overnight_results/model_{}_{}_{}'.format(name, timestamp, best_epoch)
+model_path = 'overnight_results/model_{}_{}_{}'.format(name, timestamp, best_epoch + 1)
 torch.save(best_model, model_path)
+
+# Change the UMP
+# Change the metrics
+# Change the sigmoid
+
+# Runs
+# 20230723_213007 - 4 UMPs 20 epoch # Higher loss than 6 UMPs
+# 20230724_202246 - 4 UMPs 50 epoch # Higher loss than 6 UMPs
+# 20230724_222759 - 2 UMPs 50 epoch # Lower Train Loss but higher validation loss
+# 20230723_234053 - 6 UMPs 50 epoch # Pretty good
+# 20230724_170850 - 7 UMPs 50 epoch # Bad run, Maximum RMSE very bad, other stuff worse off as well
+# 20230725_012255 - 6 UMPs 50 epoch with NY (osaka val) 128 batch size
+# ? - 6 UMPs 50 epoch with osaka (ny val)

@@ -245,14 +245,30 @@ class model_n12_light(nn.Module):
 
     def forward(self, x):
         
+        # Check if input itself is wrong
+        try:
+            if x.isnan().sum() > 0:
+                print("NaN Detected at start")
+                raise ValueError
+        except:
+            pass
+        
         # Merge the channels
         x = self.M0(x)
 
+        try:
+            if x_block0.isnan().sum() > 0:
+                print("NaN Detected after merge")
+                raise ValueError
+        except:
+            pass
+        
         # First Encoder (Channels 1-3)
         x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 0:3])
 
         try:
             if x_block0.isnan().sum() > 0:
+                print("NaN Detected after encode")
                 raise ValueError
         except:
             pass
@@ -273,6 +289,88 @@ class model_n12_light(nn.Module):
 
         try:
             if out.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
+
+        return out
+    
+class model_n12_light_normalised(nn.Module):
+    """
+    Light version, which uses the merger in the beginning to merge the channels, without duplicating the Encoder.
+    This is also the normalised version, ie. outputs will be normalised, needs to be de-normalised after prediction to get actual value
+    """
+    def __init__(self, Encoder, num_features, block_channel, n_out, sigmoid_idx, cut_R2= False):
+        """
+        # Parameters:\n
+        - body: The main body of the model, in this case generally refers to original IM2ELEVATION model\n
+        - head: The head of the model, takes in output from the body and outputs it as the output of this model\n
+        - cut: The index to cut the body after, ie. body = body[:cut]. Defaults to None. \n
+
+        """
+
+        super(model_n12_light_normalised, self).__init__()
+        
+        # Set the number of out channels
+        self.n_out = n_out
+        # Whether to cut R2 and just return feature maps
+        self.cut_R2 = cut_R2
+        # Mergers for the different channels
+        self.M0 = nn.Conv2d(12, 3, 1, 1)
+
+        # Instantiate Encoders and set their channels
+        self.E = Encoder
+
+        # Set their respective channels for normalisation
+        # self.E.set_channels(list(range(0, 3)))
+
+
+        self.D2 = modules.D2(num_features = num_features)
+        self.MFF = modules.MFF(block_channel)
+        self.R = modules.R1()
+        self.R2 = modules.R2(n_out = n_out, sigmoid_idx= sigmoid_idx)
+
+
+    def forward(self, x):
+        
+        # Check if input itself is wrong
+        try:
+            if x.isnan().sum() > 0:
+                print("NaN Detected at start")
+                raise ValueError
+        except:
+            pass
+        # Merge the channels
+        x = self.M0(x)
+        
+        # First Encoder (Channels 1-3)
+        x_block0, x_block1, x_block2, x_block3, x_block4 = self.E(x[:, 0:3])
+
+        try:
+            if x_block0.isnan().sum() > 0:
+                print("NaN Detected after encode")
+                raise ValueError
+        except:
+            pass
+
+       
+
+        x_decoder = self.D2(x_block0, x_block1, x_block2, x_block3, x_block4) 
+
+        x_mff = self.MFF(x_block0, x_block1, x_block2, x_block3, x_block4, [x_decoder.size(2), x_decoder.size(3)]) 
+
+        x_R1 = self.R(torch.cat((x_decoder, x_mff), 1))
+        
+        # If cut, just return the maps
+        if self.cut_R2:
+            return x_R1
+            
+        out = self.R2(x_R1) 
+
+        try:
+            if out.isnan().sum() > 0:
+                print("NaN Detected")
                 raise ValueError
         except:
             pass

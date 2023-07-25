@@ -141,6 +141,14 @@ class E_senet(nn.Module):
 
         # Normalise x first
         # x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
+        # Check if input itself is wrong
+        try:
+            if x.isnan().sum() > 0:
+                print("NaN Detected upon entering E")
+                raise ValueError
+        except:
+            pass
+        
         x_normed = x # Not sure if this is need but did it just in case, doesn't take much space
 
         # Old way of norming
@@ -154,7 +162,7 @@ class E_senet(nn.Module):
 
         try:
             if x_normed.isnan().sum() > 0:
-                print("NaN Detected")
+                print("NaN Detected after E clipping")
                 raise ValueError
         except:
             pass
@@ -181,6 +189,65 @@ class E_senet(nn.Module):
         # x = self.down(x,(110,110))
 
         x_block1 = self.base[1](x_normed)
+        x_block2 = self.base[2](x_block1)
+        x_block3 = self.base[3](x_block2)
+        x_block4 = self.base[4](x_block3)
+        return x_block0,  x_block1, x_block2, x_block3, x_block4
+    
+    
+class E_normalised(nn.Module):
+
+    def __init__(self, original_model):
+        super(E_normalised, self).__init__()
+
+        self.base = nn.Sequential(*list(original_model.children())[:-3])
+
+        #self.conv = nn.Conv2d(3, 64 , kernel_size=5, stride=1, bias=False)
+        #self.bn = nn.BatchNorm2d(64)
+      
+        self.pool = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.down = _UpProjection(64, 128)
+
+    def forward(self, x):
+        #conv_x = F.relu(self.conv(x))
+        #conv_x = self.bn(conv_x) 
+
+        #summary(self.base, input_size=(3, 440, 440))
+
+        # Normalise x first
+        # x_normed = copy.deepcopy(x) # Not sure if this is need but did it just in case, doesn't take much space
+        # Check if input itself is wrong
+        try:
+            if x.isnan().sum() > 0:
+                print("NaN Detected upon entering E")
+                raise ValueError
+        except:
+            pass
+        
+        x = x.to(torch.float)
+        x_block0 = self.base[0][0:6](x)
+        
+        try:
+            if x_block0.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
+
+        x = self.base[0][6:](x_block0)
+        
+        try:
+            if x.isnan().sum() > 0:
+                print("NaN Detected")
+                raise ValueError
+        except:
+            pass
+
+        # x = self.Harm(x)
+        # x = self.pool(x)
+        # x = self.down(x,(110,110))
+
+        x_block1 = self.base[1](x)
         x_block2 = self.base[2](x_block1)
         x_block3 = self.base[3](x_block2)
         x_block4 = self.base[4](x_block3)
