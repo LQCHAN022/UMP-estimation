@@ -189,3 +189,5 @@ test*
 ./models/
 runs/
 overnight_results/
+
+*.pkl

@@ -284,9 +284,8 @@ class D2(nn.Module):
     def forward(self, x_block0, x_block1, x_block2, x_block3, x_block4):
         # 42, 256, 512, 1024, 2048 features for blocks 0-4
         x_d0 = F.relu(self.bn(self.conv(x_block4)))
-
-
         x_d1 = self.up1(x_d0, [x_block3.size(2), x_block3.size(3)])
+        
         x_block3 = F.relu(self.bn1(self.conv1(x_block3)))#512
         cx_d1 = torch.cat((x_d1,x_block3),1)#512
         cx_d1 = F.relu(self.bn1(self.conv1(cx_d1)))#512
@@ -295,7 +294,7 @@ class D2(nn.Module):
         x_d2 = self.up2(cx_d1, [x_block2.size(2), x_block2.size(3)])
         x_block2 = F.relu(self.bn2(self.conv2(x_block2)))
         cx_d2 = torch.cat((x_d2,x_block2),1)
-        cx_d2 = F.relu(self.bn2(self.conv2(cx_d1)))
+        cx_d2 = F.relu(self.bn2(self.conv2(cx_d1))) # Check again
 
 
 
@@ -610,7 +609,7 @@ class R2(nn.Module):
         # 144 -> 432
         # x2_1 = self.maxpool0(x2) # 144, 46x46
         # x2_2 = self.softmax0(x2) # 144
-        x2_2 = self.sigmoid(x2) # 144
+        x2_2 = self.sigmoid(x2) # 72 -> 72
         x2_3 = torch.cat([x2, x2_2], dim= 1) # 144
         x2_std = x2.std(dim= (2, 3)) # 144 values
         x2_std = x2_std.unsqueeze(2).unsqueeze(2).expand(-1, -1, x2_3.shape[2], x2_3.shape[3])

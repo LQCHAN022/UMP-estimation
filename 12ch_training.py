@@ -51,7 +51,7 @@ parser = argparse.ArgumentParser()
 # parser.add_argument("--dataset", type= str, default= "Tokyo_Osaka", help= "<Train>_<Valid>, right now the available options are Tokyo_Osaka, Tokyo_Tokyo")
 # parser.add_argument("--model", type= str, default= "12ch_light", help= "Available options: 3ch, 12ch_light, 12ch_mod, 12ch_full")
 parser.add_argument("--epoch", type= int, default= 50)
-parser.add_argument("--batchsize", type= int, default= 128)
+parser.add_argument("--batchsize", type= int, default= 64)
 parser.add_argument("--name", type= str, default= "default", help= "Name of the model/setup")
 parser.add_argument("--extend", type= int, default= 5, help= "Extends the max epoch by the value if the current best is the last epoch")
 parser.add_argument("--patience", type= int, default= 5, help= "Stops the training when vloss increases for <patience> consecutive times, min=0")
@@ -77,21 +77,26 @@ UMP = [
         "StandardDeviation"
         ]
 
-with open("data/ds_tokyo_4.pkl", "rb") as f:
+with open("data/ds_tokyo_6.pkl", "rb") as f:
     ds_tokyo = pickle.load(f)
 
-with open("data/ds_osaka_4.pkl", "rb") as f:
+with open("data/ds_osaka_6.pkl", "rb") as f:
     ds_osaka = pickle.load(f)
     
-# with open("data/ds_ny_4.pkl", "rb") as f:
-#     ds_ny = pickle.load(f)
+with open("data/ds_ny_6.pkl", "rb") as f:
+    ds_ny = pickle.load(f)
 
 ds_tokyo.set_UMPs(UMP)
 ds_osaka.set_UMPs(UMP)
-# ds_ny.set_UMPs(UMP)
+ds_ny.set_UMPs(UMP)
+
+ds_tokyo.return_coords = True
+ds_osaka.return_coords = True
+ds_ny.return_coords = True
 
 ds_osaka.UMP_max = ds_tokyo.UMP_max
 ds_osaka.channel_max = ds_tokyo.channel_max
+ds_ny.channel_max = ds_tokyo.channel_max
 
 # If using combined
 # if True:
@@ -109,7 +114,7 @@ ds_osaka.channel_max = ds_tokyo.channel_max
     # raise
 
 dl = DataLoaders().from_dsets(ds_tokyo, ds_osaka, bs= args.batchsize, device=torch.device('cuda'))
-# dl_ny = DataLoader(ds_ny, bs= args.batchsize, device= torch.device('cuda'))
+dl_ny = DataLoader(ds_ny, bs= args.batchsize, device= torch.device('cuda'))
 
 # Load weights from IM2ELEVATION and delete unnecessary layers
 checkpoint = torch.load(CHECKPT_PATH) # The original IM2ELEVATION weights
@@ -139,7 +144,7 @@ Encoder = modules.E_normalised(original_model) # For new ds
 
 # model = net.model_n12(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
 # model = net.model_n12_light(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [])
-model = net.model_n12_light_normalised(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [])
+model = net.model_n12_light_normalised(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048], n_out= len(UMP), sigmoid_idx= [3])
 
 # For multi-GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -272,9 +277,12 @@ def train_one_epoch(epoch_index, tb_writer):
     # iter(training_loader) so that we can track the batch
     # index and do some intra-epoch reporting
     # TOKYO
+    tokyo_y = []
+    tokyo_preds = []
+    tokyo_bounds = []
     for i, data in enumerate(tqdm.tqdm(dl.train, desc= f"Epoch: {epoch_index + 1}", dynamic_ncols= True)):
         # Every data instance is an input + label pair
-        inputs, labels = data
+        inputs, labels, bounds = data
 
         # Zero your gradients for every batch!
         optimizer.zero_grad()
@@ -283,9 +291,12 @@ def train_one_epoch(epoch_index, tb_writer):
             # Make predictions for this batch
         inputs = inputs.to(torch.float)
         outputs = model(inputs)
+        tokyo_preds.append(outputs)
+        tokyo_y.append(labels)
+        tokyo_bounds.append(bounds)
 
             # Compute the loss and its gradients
-        loss = F.mse_loss(outputs.float(), labels.float())
+        loss = torch.sqrt(F.mse_loss(outputs.float(), labels.float()))
         # loss = loss.to(torch.float)
             # loss = mse_weighted(outputs, labels, dl.train_ds.UMP_max)
 
@@ -332,7 +343,10 @@ def train_one_epoch(epoch_index, tb_writer):
     #     tqdm.tqdm.write(f"Running Loss: {last_loss}", end= "\r")
 
     # print(f'Epoch {} loss: {}')
-    return last_loss
+    tokyo_y = torch.cat(tokyo_y)
+    tokyo_preds = torch.cat(tokyo_preds)
+    tokyo_bounds = torch.cat(tokyo_bounds)
+    return last_loss, tokyo_y, tokyo_preds, tokyo_bounds
 
 # PyTorch TensorBoard support
 # Initializing in a separate cell so we can easily add more epochs to the same run
@@ -342,6 +356,8 @@ writer = SummaryWriter('runs/sentinel_{}_{}'.format(name, timestamp))
 epoch_number = 0
 print(f"Run saved as: {'runs/sentinel_{}_{}'.format(name, timestamp)}")
 
+print("Channel max:", ds_tokyo.channel_max, ds_osaka.channel_max)
+print("UMP max:", ds_tokyo.UMP_max, ds_osaka.UMP_max)
 best_vloss = 1_000_000.
 
 # Early Stopping
@@ -355,7 +371,7 @@ while epoch_number < EPOCHS:
     # Make sure gradient tracking is on, and do a pass over the data
     # model.train(True)
     # model.cuda()
-    avg_loss = train_one_epoch(epoch_number, writer)
+    avg_loss, tokyo_y, tokyo_preds, tokyo_bounds = train_one_epoch(epoch_number, writer)
 
     # We don't need gradients on to do reporting
     model.train(False)
@@ -366,19 +382,42 @@ while epoch_number < EPOCHS:
     for i, metric in enumerate(metrics):
         val_metrics[metric.func.__name__] = 0
 
+    osaka_preds = []
+    osaka_y = []
+    osaka_bounds = []
     with torch.no_grad():
         for i, vdata in tqdm.tqdm(enumerate(dl[1]), desc= f"Validation:", dynamic_ncols= True, total= len(dl[1])):
-            vinputs, vlabels = vdata
+            vinputs, vlabels, vbounds = vdata
             voutputs = model(vinputs.float())
+            osaka_preds.append(voutputs)
+            osaka_y.append(vlabels)
+            osaka_bounds.append(vbounds)
             # Calcualte the loss
             # vloss = mse_weighted(voutputs, vlabels, dl.train_ds.UMP_max)
-            vloss = F.mse_loss(voutputs.float(), vlabels.float())
+            vloss = torch.sqrt(F.mse_loss(voutputs.float(), vlabels.float()))
             running_vloss += vloss
-
             # Calculate the metrics
             for i, metric in enumerate(metrics):
                 val_metrics[metric.func.__name__] += metric(voutputs, vlabels) / len(dl[1])
-
+        print("Actual Loss:", vloss)
+    osaka_y = torch.cat(osaka_y)
+    osaka_preds = torch.cat(osaka_preds)
+    osaka_bounds = torch.cat(osaka_bounds)
+    
+    # New York
+    ny_preds = []
+    ny_y = []
+    ny_bounds = []
+    with torch.no_grad():
+        for i, vdata in tqdm.tqdm(enumerate(dl_ny), desc= f"Test:", dynamic_ncols= True, total= len(dl_ny)):
+            vinputs, vlabels, vbounds = vdata
+            voutputs = model(vinputs.float())
+            ny_preds.append(voutputs)
+            ny_y.append(vlabels)
+            ny_bounds.append(vbounds)
+    ny_y = torch.cat(ny_y)
+    ny_preds = torch.cat(ny_preds)
+    ny_bounds = torch.cat(ny_bounds)
         
 
     avg_vloss = running_vloss / (i + 1)
@@ -406,6 +445,29 @@ while epoch_number < EPOCHS:
         # Save this to var instead of writing directly
         best_model = model.state_dict()
         best_epoch = epoch_number
+        model_path = 'overnight_results/model_{}_{}_{}'.format(name, timestamp, best_epoch + 1)
+        torch.save(best_model, model_path)
+        with open(f"results/tokyo_y_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(tokyo_y, f)
+        with open(f"results/tokyo_preds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(tokyo_preds, f)
+        with open(f"results/tokyo_bounds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(tokyo_bounds, f)
+            
+        with open(f"results/osaka_y_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(osaka_y, f)
+        with open(f"results/osaka_preds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(osaka_preds, f)
+        with open(f"results/osaka_bounds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(osaka_bounds, f)
+            
+        with open(f"results/ny_y_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(ny_y, f)
+        with open(f"results/ny_preds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(ny_preds, f)
+        with open(f"results/ny_bounds_{timestamp}_{best_epoch + 1}.pkl", "wb") as f:
+            pickle.dump(ny_bounds, f)
+        
 
         if epoch_number == EPOCHS - 1:
             EPOCHS += args.extend
@@ -423,8 +485,6 @@ while epoch_number < EPOCHS:
     epoch_number += 1
 
 # Save model
-model_path = 'overnight_results/model_{}_{}_{}'.format(name, timestamp, best_epoch + 1)
-torch.save(best_model, model_path)
 
 # Change the UMP
 # Change the metrics
@@ -437,4 +497,13 @@ torch.save(best_model, model_path)
 # 20230723_234053 - 6 UMPs 50 epoch # Pretty good
 # 20230724_170850 - 7 UMPs 50 epoch # Bad run, Maximum RMSE very bad, other stuff worse off as well
 # 20230725_012255 - 6 UMPs 50 epoch with NY (osaka val) 128 batch size
+# 20230726_002201 - 6 UMPs 50 epoch 128 batch fixed # Pretty sus
+# 20230726_103556 - 6 UMPs 50 epoch 64 batch fixed # Quite bad
+# 20230726_204834 - 6 UMPs 50 epoch 64 batch again # Sorta looks better...?
+# 20230726_225134 - ^ 128 batch # Bad
 # ? - 6 UMPs 50 epoch with osaka (ny val)
+# 20230727_001009  ^ again # better somehow...? but still kinda bad
+# 20230727_184820 - 6 UMP, 64 batch, another try with ds6
+# 20230728_013358 - 4 UMP, 64 batch, maybe it'll lead to better UMP
+# 20230728_171305 - Good enough just didn't get the coords
+# 20230729_145853 - 6 UMP, hopefully the last one

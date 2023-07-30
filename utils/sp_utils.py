@@ -84,134 +84,134 @@ def adjust_gamma(image, gamma=1.0):
     
 # Function to calculate UMP directly from shp file
 # Self-note: X and Y are col and row, they are swapped in array indexing 
-def calculateUMP(shp_df, min_x, min_y, max_x, max_y, percentile= 98, verbose= True):
-    """
-    # Parameters\n
-    shp_df: A geopandas dataframe with columns "height" and "geometry"\n
-    min_x, min_y, max_x, max_y: The minimum/maximum x/y coordinates respectively of the area to calculate the UMP for\n
-    percentile: <int, [0, 100]> The percentile for calculation of the PercentileHeight\n
-    verbose: <bool> To print the results of the UMP calculation\n
+# def calculateUMP(shp_df, min_x, min_y, max_x, max_y, percentile= 98, verbose= True):
+#     """
+#     # Parameters\n
+#     shp_df: A geopandas dataframe with columns "height" and "geometry"\n
+#     min_x, min_y, max_x, max_y: The minimum/maximum x/y coordinates respectively of the area to calculate the UMP for\n
+#     percentile: <int, [0, 100]> The percentile for calculation of the PercentileHeight\n
+#     verbose: <bool> To print the results of the UMP calculation\n
     
-    # Returns\n
-    A dictionary with the keys below:\n
-    - AverageHeightArea\n
-    - AverageHeightBuilding\n
-    - AverageHeightTotalArea\n
-    - MaximumHeight\n
-    - MinimumHeight\n
-    - PercentileHeight\n
-    - Percentile\n
-    - StandardDeviation\n
-    - PlanarArea\n
-    - PlanarAreaIndex\n
-    - FrontalArea\n
-    - FrontalAreaIndex\n
-    - TotalArea\n
-    """
-    # Clip the shapedf to desired area
-    df_clipped = geopandas.clip(shp_df, [min_x, min_y, max_x, max_y])
+#     # Returns\n
+#     A dictionary with the keys below:\n
+#     - AverageHeightArea\n
+#     - AverageHeightBuilding\n
+#     - AverageHeightTotalArea\n
+#     - MaximumHeight\n
+#     - MinimumHeight\n
+#     - PercentileHeight\n
+#     - Percentile\n
+#     - StandardDeviation\n
+#     - PlanarArea\n
+#     - PlanarAreaIndex\n
+#     - FrontalArea\n
+#     - FrontalAreaIndex\n
+#     - TotalArea\n
+#     """
+#     # Clip the shapedf to desired area
+#     df_clipped = geopandas.clip(shp_df, [min_x, min_y, max_x, max_y])
 
-    # Some entries contain multipolygons which needs to be converted to single polygons first
-    df_clipped_exploded = df_clipped.explode(ignore_index= True)
+#     # Some entries contain multipolygons which needs to be converted to single polygons first
+#     df_clipped_exploded = df_clipped.explode(ignore_index= True)
 
-    # Calculate the area of each polygon
-    df_clipped_exploded["area"] = df_clipped_exploded["geometry"].apply(lambda x: x.area)
+#     # Calculate the area of each polygon
+#     df_clipped_exploded["area"] = df_clipped_exploded["geometry"].apply(lambda x: x.area)
 
-    r = {}
-    total_area = (max_x - min_x) * (max_y - min_y)
-    assert total_area >= 0 # Ensure that no funny business is going on
-    frontal_area = 0
-    weighted_height = None
-        # print("Height:", row[1])
-        # print("Coordinates:", *row[3].exterior.coords)
+#     r = {}
+#     total_area = (max_x - min_x) * (max_y - min_y)
+#     assert total_area >= 0 # Ensure that no funny business is going on
+#     frontal_area = 0
+#     weighted_height = None
+#         # print("Height:", row[1])
+#         # print("Coordinates:", *row[3].exterior.coords)
 
-    r["TotalArea"] = total_area
+#     r["TotalArea"] = total_area
 
-    # If no buildings in the area
-    if len(df_clipped_exploded["area"]) == 0:
-        r["PlanarArea"] = 0
-        r["PlanarAreaIndex"] = 0
-        r["MaximumHeight"] = 0
-        r["MinimumHeight"] = 0
-        r["AverageHeightBuilding"] = 0
-        r["AverageHeightArea"] = 0
-        r["AverageHeightTotalArea"] = 0
-        r["PercentileHeight"] = 0
-        r["StandardDeviation"] = 0
+#     # If no buildings in the area
+#     if len(df_clipped_exploded["area"]) == 0:
+#         r["PlanarArea"] = 0
+#         r["PlanarAreaIndex"] = 0
+#         r["MaximumHeight"] = 0
+#         r["MinimumHeight"] = 0
+#         r["AverageHeightBuilding"] = 0
+#         r["AverageHeightArea"] = 0
+#         r["AverageHeightTotalArea"] = 0
+#         r["PercentileHeight"] = 0
+#         r["StandardDeviation"] = 0
 
-    else:
-        r["PlanarArea"] = df_clipped_exploded["area"].sum()
+#     else:
+#         r["PlanarArea"] = df_clipped_exploded["area"].sum()
 
-        r["PlanarAreaIndex"] = r["PlanarArea"] / total_area
+#         r["PlanarAreaIndex"] = r["PlanarArea"] / total_area
 
-        r["MaximumHeight"] = df_clipped_exploded["height"].max()
+#         r["MaximumHeight"] = df_clipped_exploded["height"].max()
         
-        r["MinimumHeight"] = df_clipped_exploded["height"].min()
+#         r["MinimumHeight"] = df_clipped_exploded["height"].min()
 
-        r["AverageHeightBuilding"] = df_clipped_exploded["height"].mean()
+#         r["AverageHeightBuilding"] = df_clipped_exploded["height"].mean()
 
-        weighted_height = df_clipped_exploded.apply(lambda x: x["height"] * x["area"], axis= 1).sum()
+#         weighted_height = df_clipped_exploded.apply(lambda x: x["height"] * x["area"], axis= 1).sum()
 
-        r["AverageHeightArea"] = weighted_height / r["PlanarArea"]
+#         r["AverageHeightArea"] = weighted_height / r["PlanarArea"]
 
-        r["AverageHeightTotalArea"] = weighted_height / total_area
+#         r["AverageHeightTotalArea"] = weighted_height / total_area
 
 
-        r["PercentileHeight"] = np.percentile(df_clipped_exploded["height"], percentile)
+#         r["PercentileHeight"] = np.percentile(df_clipped_exploded["height"], percentile)
 
-        r["StandardDeviation"] = df_clipped_exploded["height"].std()
+#         r["StandardDeviation"] = df_clipped_exploded["height"].std()
 
-    r["Percentile"] = percentile
+#     r["Percentile"] = percentile
 
-    debug_frontal = 0
+#     debug_frontal = 0
 
-    # Frontal Area
-    for poly in df_clipped_exploded.itertuples():
-        # Get the height
-        height = poly[1]
+#     # Frontal Area
+#     for poly in df_clipped_exploded.itertuples():
+#         # Get the height
+#         height = poly[1]
 
-        # List containing all points + one more (initial)
-        points_lst = list(poly[3].exterior.coords)
-        points_lst.append(points_lst[0])
+#         # List containing all points + one more (initial)
+#         points_lst = list(poly[3].exterior.coords)
+#         points_lst.append(points_lst[0])
        
         
-        # Points that are invalid cause they are on the border
-        invalid_lst = []
+#         # Points that are invalid cause they are on the border
+#         invalid_lst = []
         
-        frontal_span = 0
-        span_minx = None
-        span_maxx = None
+#         frontal_span = 0
+#         span_minx = None
+#         span_maxx = None
 
-        # Returns back to the original point to ensure that all edges are checked 
-        for p in points_lst:
-            if span_minx is None or span_minx > p[0]:
-                span_minx = p[0]
-            if span_maxx is None or span_maxx < p[0]:
-                span_maxx = p[0]
-            # If point is at top edge (max y), consider it invalid (top is "front" for calc of frontal area hence only top considered)
+#         # Returns back to the original point to ensure that all edges are checked 
+#         for p in points_lst:
+#             if span_minx is None or span_minx > p[0]:
+#                 span_minx = p[0]
+#             if span_maxx is None or span_maxx < p[0]:
+#                 span_maxx = p[0]
+#             # If point is at top edge (max y), consider it invalid (top is "front" for calc of frontal area hence only top considered)
             
-            invalid_lst.append(p)
-            # This assumes the points are cyclical
-            if len(invalid_lst) == 2:
-                for subp in invalid_lst:
-                    if subp[1] == max_y:
-                        frontal_span -= abs(invalid_lst[0][0] - invalid_lst[1][0])
-                invalid_lst = []
-        debug_frontal += frontal_span
-        frontal_span += span_maxx - span_minx
-        # To account for computational shennanigans
-        if frontal_span < 0: frontal_span = 0
-        frontal_area += frontal_span * height
+#             invalid_lst.append(p)
+#             # This assumes the points are cyclical
+#             if len(invalid_lst) == 2:
+#                 for subp in invalid_lst:
+#                     if subp[1] == max_y:
+#                         frontal_span -= abs(invalid_lst[0][0] - invalid_lst[1][0])
+#                 invalid_lst = []
+#         debug_frontal += frontal_span
+#         frontal_span += span_maxx - span_minx
+#         # To account for computational shennanigans
+#         if frontal_span < 0: frontal_span = 0
+#         frontal_area += frontal_span * height
 
-    r["FrontalArea"] = frontal_area
+#     r["FrontalArea"] = frontal_area
 
-    r["FrontalAreaIndex"] = frontal_area / total_area
+#     r["FrontalAreaIndex"] = frontal_area / total_area
 
-    if verbose:
-        print("Frontal edge substracted:", debug_frontal)
-        print(*r.items(), sep= "\n")
+#     if verbose:
+#         print("Frontal edge substracted:", debug_frontal)
+#         print(*r.items(), sep= "\n")
 
-    return r
+#     return r
 
 def generateCorners(ll_coord, step= 1000, return_int= False):
     """
@@ -263,134 +263,134 @@ def boundingRectangle(center, width, height):
 
 # Function to calculate UMP directly from shp file
 # Self-note: X and Y are col and row, they are swapped in array indexing 
-def calculateUMP(shp_df, min_x, min_y, max_x, max_y, percentile= 98, verbose= True):
-    """
-    # Parameters\n
-    shp_df: A geopandas dataframe with columns "height" and "geometry"\n
-    min_x, min_y, max_x, max_y: The minimum/maximum x/y coordinates respectively of the area to calculate the UMP for\n
-    percentile: <int, [0, 100]> The percentile for calculation of the PercentileHeight\n
-    verbose: <bool> To print the results of the UMP calculation\n
+# def calculateUMP(shp_df, min_x, min_y, max_x, max_y, percentile= 98, verbose= True):
+#     """
+#     # Parameters\n
+#     shp_df: A geopandas dataframe with columns "height" and "geometry"\n
+#     min_x, min_y, max_x, max_y: The minimum/maximum x/y coordinates respectively of the area to calculate the UMP for\n
+#     percentile: <int, [0, 100]> The percentile for calculation of the PercentileHeight\n
+#     verbose: <bool> To print the results of the UMP calculation\n
     
-    # Returns\n
-    A dictionary with the keys below:\n
-    - AverageHeightArea\n
-    - AverageHeightBuilding\n
-    - AverageHeightTotalArea\n
-    - MaximumHeight\n
-    - MinimumHeight\n
-    - PercentileHeight\n
-    - Percentile\n
-    - StandardDeviation\n
-    - PlanarArea\n
-    - PlanarAreaIndex\n
-    - FrontalArea\n
-    - FrontalAreaIndex\n
-    - TotalArea\n
-    """
-    # Clip the shapedf to desired area
-    df_clipped = geopandas.clip(shp_df, [min_x, min_y, max_x, max_y])
+#     # Returns\n
+#     A dictionary with the keys below:\n
+#     - AverageHeightArea\n
+#     - AverageHeightBuilding\n
+#     - AverageHeightTotalArea\n
+#     - MaximumHeight\n
+#     - MinimumHeight\n
+#     - PercentileHeight\n
+#     - Percentile\n
+#     - StandardDeviation\n
+#     - PlanarArea\n
+#     - PlanarAreaIndex\n
+#     - FrontalArea\n
+#     - FrontalAreaIndex\n
+#     - TotalArea\n
+#     """
+#     # Clip the shapedf to desired area
+#     df_clipped = geopandas.clip(shp_df, [min_x, min_y, max_x, max_y])
 
-    # Some entries contain multipolygons which needs to be converted to single polygons first
-    df_clipped_exploded = df_clipped.explode(ignore_index= True)
+#     # Some entries contain multipolygons which needs to be converted to single polygons first
+#     df_clipped_exploded = df_clipped.explode(ignore_index= True)
 
-    # Calculate the area of each polygon
-    df_clipped_exploded["area"] = df_clipped_exploded["geometry"].apply(lambda x: x.area)
+#     # Calculate the area of each polygon
+#     df_clipped_exploded["area"] = df_clipped_exploded["geometry"].apply(lambda x: x.area)
 
-    r = {}
-    total_area = (max_x - min_x) * (max_y - min_y)
-    assert total_area >= 0 # Ensure that no funny business is going on
-    frontal_area = 0
-    weighted_height = None
-        # print("Height:", row[1])
-        # print("Coordinates:", *row[3].exterior.coords)
+#     r = {}
+#     total_area = (max_x - min_x) * (max_y - min_y)
+#     assert total_area >= 0 # Ensure that no funny business is going on
+#     frontal_area = 0
+#     weighted_height = None
+#         # print("Height:", row[1])
+#         # print("Coordinates:", *row[3].exterior.coords)
 
-    r["TotalArea"] = total_area
+#     r["TotalArea"] = total_area
 
-    # If no buildings in the area
-    if len(df_clipped_exploded["area"]) == 0:
-        r["PlanarArea"] = 0
-        r["PlanarAreaIndex"] = 0
-        r["MaximumHeight"] = 0
-        r["MinimumHeight"] = 0
-        r["AverageHeightBuilding"] = 0
-        r["AverageHeightArea"] = 0
-        r["AverageHeightTotalArea"] = 0
-        r["PercentileHeight"] = 0
-        r["StandardDeviation"] = 0
+#     # If no buildings in the area
+#     if len(df_clipped_exploded["area"]) == 0:
+#         r["PlanarArea"] = 0
+#         r["PlanarAreaIndex"] = 0
+#         r["MaximumHeight"] = 0
+#         r["MinimumHeight"] = 0
+#         r["AverageHeightBuilding"] = 0
+#         r["AverageHeightArea"] = 0
+#         r["AverageHeightTotalArea"] = 0
+#         r["PercentileHeight"] = 0
+#         r["StandardDeviation"] = 0
 
-    else:
-        r["PlanarArea"] = df_clipped_exploded["area"].sum()
+#     else:
+#         r["PlanarArea"] = df_clipped_exploded["area"].sum()
 
-        r["PlanarAreaIndex"] = r["PlanarArea"] / total_area
+#         r["PlanarAreaIndex"] = r["PlanarArea"] / total_area
 
-        r["MaximumHeight"] = df_clipped_exploded["height"].max()
+#         r["MaximumHeight"] = df_clipped_exploded["height"].max()
         
-        r["MinimumHeight"] = df_clipped_exploded["height"].min()
+#         r["MinimumHeight"] = df_clipped_exploded["height"].min()
 
-        r["AverageHeightBuilding"] = df_clipped_exploded["height"].mean()
+#         r["AverageHeightBuilding"] = df_clipped_exploded["height"].mean()
 
-        weighted_height = df_clipped_exploded.apply(lambda x: x["height"] * x["area"], axis= 1).sum()
+#         weighted_height = df_clipped_exploded.apply(lambda x: x["height"] * x["area"], axis= 1).sum()
 
-        r["AverageHeightArea"] = weighted_height / r["PlanarArea"]
+#         r["AverageHeightArea"] = weighted_height / r["PlanarArea"]
 
-        r["AverageHeightTotalArea"] = weighted_height / total_area
+#         r["AverageHeightTotalArea"] = weighted_height / total_area
 
 
-        r["PercentileHeight"] = np.percentile(df_clipped_exploded["height"], percentile)
+#         r["PercentileHeight"] = np.percentile(df_clipped_exploded["height"], percentile)
 
-        r["StandardDeviation"] = df_clipped_exploded["height"].std()
+#         r["StandardDeviation"] = df_clipped_exploded["height"].std()
 
-    r["Percentile"] = percentile
+#     r["Percentile"] = percentile
 
-    debug_frontal = 0
+#     debug_frontal = 0
 
-    # Frontal Area
-    for poly in df_clipped_exploded.itertuples():
-        # Get the height
-        height = poly[1]
+#     # Frontal Area
+#     for poly in df_clipped_exploded.itertuples():
+#         # Get the height
+#         height = poly[1]
 
-        # List containing all points + one more (initial)
-        points_lst = list(poly[3].exterior.coords)
-        points_lst.append(points_lst[0])
+#         # List containing all points + one more (initial)
+#         points_lst = list(poly[3].exterior.coords)
+#         points_lst.append(points_lst[0])
        
         
-        # Points that are invalid cause they are on the border
-        invalid_lst = []
+#         # Points that are invalid cause they are on the border
+#         invalid_lst = []
         
-        frontal_span = 0
-        span_minx = None
-        span_maxx = None
+#         frontal_span = 0
+#         span_minx = None
+#         span_maxx = None
 
-        # Returns back to the original point to ensure that all edges are checked 
-        for p in points_lst:
-            if span_minx is None or span_minx > p[0]:
-                span_minx = p[0]
-            if span_maxx is None or span_maxx < p[0]:
-                span_maxx = p[0]
-            # If point is at top edge (max y), consider it invalid (top is "front" for calc of frontal area hence only top considered)
+#         # Returns back to the original point to ensure that all edges are checked 
+#         for p in points_lst:
+#             if span_minx is None or span_minx > p[0]:
+#                 span_minx = p[0]
+#             if span_maxx is None or span_maxx < p[0]:
+#                 span_maxx = p[0]
+#             # If point is at top edge (max y), consider it invalid (top is "front" for calc of frontal area hence only top considered)
             
-            invalid_lst.append(p)
-            # This assumes the points are cyclical
-            if len(invalid_lst) == 2:
-                for subp in invalid_lst:
-                    if subp[1] == max_y:
-                        frontal_span -= abs(invalid_lst[0][0] - invalid_lst[1][0])
-                invalid_lst = []
-        debug_frontal += frontal_span
-        frontal_span += span_maxx - span_minx
-        # To account for computational shennanigans
-        if frontal_span < 0: frontal_span = 0
-        frontal_area += frontal_span * height
+#             invalid_lst.append(p)
+#             # This assumes the points are cyclical
+#             if len(invalid_lst) == 2:
+#                 for subp in invalid_lst:
+#                     if subp[1] == max_y:
+#                         frontal_span -= abs(invalid_lst[0][0] - invalid_lst[1][0])
+#                 invalid_lst = []
+#         debug_frontal += frontal_span
+#         frontal_span += span_maxx - span_minx
+#         # To account for computational shennanigans
+#         if frontal_span < 0: frontal_span = 0
+#         frontal_area += frontal_span * height
 
-    r["FrontalArea"] = frontal_area
+#     r["FrontalArea"] = frontal_area
 
-    r["FrontalAreaIndex"] = frontal_area / total_area
+#     r["FrontalAreaIndex"] = frontal_area / total_area
 
-    if verbose:
-        print("Frontal edge substracted:", debug_frontal)
-        print(*r.items(), sep= "\n")
+#     if verbose:
+#         print("Frontal edge substracted:", debug_frontal)
+#         print(*r.items(), sep= "\n")
 
-    return r
+#     return r
 def generateCorners(ll_coord, step= 1000, return_int= False):
     """
     Takes in a coordinates as the Lower Left corner, and returns a list of four shapely.Point objects, each a designated step apart\n

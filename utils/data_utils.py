@@ -252,18 +252,21 @@ class UMPDataset_normalised(Dataset):
         self.UMP_max = [1 for _ in range(len(self.tgt_ump))]
         self.channel_max = [1 for _ in range(12)]
 
-        # Generate the max and min for each channel and each UMP
-        channel_max = [1 for _ in range(12)]
-        for data_piece in tqdm.tqdm(self, desc= "Checking through image files"):
-            image = data_piece[0]
+        # Generate the max and min for each channel and store image
+        self.images = []
+        channel_max = [0 for _ in range(12)]
+        for data_piece in tqdm.tqdm(range(len(self)), desc= "Checking through image files"):
+            image = self._getimage(data_piece)
+            self.images.append(image)
             for channel in range(len(image)):
                 # The image
                 cur_max = image[channel].max()
                 if cur_max > channel_max[channel]:
                     channel_max[channel] = cur_max
+        self.images = np.array(self.images)
         self.channel_max = channel_max
         
-        UMP_max = [1 for _ in range(len(self.tgt_ump))]
+        UMP_max = [0 for _ in range(len(self.tgt_ump))]
         # Generate the max for each UMP
         for param in range(len(self.tgt_ump)):
             param_stat = dict(self.ump_df[self.tgt_ump[param]].describe())
@@ -273,6 +276,24 @@ class UMPDataset_normalised(Dataset):
     
     def __len__(self):
         return len(self.ump_df)
+    
+    def _getimage(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        
+        poly = self.ump_df["geometry"][idx]
+        target = f"Sentinel_{'_'.join(map(str, map(int, poly.bounds)))}.tiff"
+        # Finds and return the first match in a string
+        file_name = next((s for s in self.files if target in s), None)
+        if file_name is None:
+            raise KeyError(f"{target} not found in {self.dir_path}")
+        
+        image = gdal.Open(file_name, gdal.GA_ReadOnly).ReadAsArray().astype("f")
+        
+        rot = self.ump_df["Rotation"][idx]
+        image = rotate(image, rot, axes= (2, 1)) # axes is 2, 1 cause axis 0 is the batch
+        
+        return image
     
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -285,15 +306,8 @@ class UMPDataset_normalised(Dataset):
         if file_name is None:
             raise KeyError(f"{target} not found in {self.dir_path}")
         
-        image = gdal.Open(file_name, gdal.GA_ReadOnly).ReadAsArray().astype("f")
-
-        # if image.shape != (12, 90, 90):
-        #     print("Non-standard image shape:", image.shape)
-        #     if image.shape[0] != 12:
-        #         raise ValueError(f"Incorrect number of channels, {image.shape[0]} channels present when 12 expected")
-        
-        rot = self.ump_df["Rotation"][idx]
-        image = rotate(image, rot, axes= (2, 1)) # axes is 2, 1 cause axis 0 is the batch
+        # image = gdal.Open(file_name, gdal.GA_ReadOnly).ReadAsArray().astype("f")
+        image = self.images[idx]
 
         umps = np.array(self.ump_df.iloc[idx][self.tgt_ump].astype("f"))
         
