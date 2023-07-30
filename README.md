@@ -5,21 +5,34 @@
 Create a conda enviroment:
 
 ```
-conda create --name remote-sensing-landuse python=3.8
+conda env create -f environment.yml
 ```
 
-Install the python deps
-
+If PyTorch does not run with GPU, or if the PyTorch library is the CPU only version:
 ```
- conda env update --file enviroment.yml
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
 ```
-
-Install terracatalogueclient
-
+## File Directory
 ```
-pip install --extra-index-url https://artifactory.vgt.vito.be/api/pypi/python-packages/simple terracatalogueclient 
+├── 12ch_training.py
+        - The script used for training
+├── data_pipeline.ipynb
+        - Data pipeline to assemble data
+├── sentinel_ump_12.ipynb
+        - Building of Dataset and experimenting with training
+├── results_visualisation.ipynb
+        - Visualisation of results
+├── utils -> Collection of utilities, including helper functions as well as model
+│   ├── convert_gml_to_shp.py
+│   ├── data_preprocessing.py
+│   ├── data_utils.py
+│   ├── gee_downloader.py
+│   ├── gml_utils.py
+│   ├── istarmap.py
+│   ├── landsat_downloader.py
+│   ├── models
+│   │   ├── modules.py
+│   │   ├── net.py
+│   │   └── senet.py
+│   └── sp_utils.py
 ```
-When running the authentication with `Catalogue().authenticate()`, run it in a Jupyter Notebook using the appropriate kernel.
-
-You need to install gcloud in order to run the program in the CLI, see: https://cloud.google.com/cli
-
